@@ -292,17 +292,6 @@ class SegmentationMap:
         
         return pd.concat([df1,df2]).reset_index(drop=True)
 
-    def _make_condition_df(self, gt, model, n_components, layer, probe):
-        self.probe = probe
-        self.set_primary_seg_map(gt=gt, model=model, n_components=n_components, layer=layer)
-        df = self.neural_df
-        df['gt'] = gt
-        df['model'] = model
-        df['n_components'] = n_components
-        df['layer'] = layer
-        df['probe'] = probe
-
-        return df 
 
     def _make_neural_df(self):
         coords = self.neural_d["coords"]
@@ -314,7 +303,9 @@ class SegmentationMap:
         dd = {}
         dd["pairs"] = pairs
         dd["neuron1"] = [pair[0] for pair in pairs]
+        dd["neuron1_centered"] = [tb.is_centered(coords[pair[0]]) for pair in pairs]
         dd["neuron2"] = [pair[1] for pair in pairs]
+        dd["neuron2_centered"] = [tb.is_centered(coords[pair[1]]) for pair in pairs]
         dd["rsc_large"] = [self.neural_d["corr_mat_large"][pair] for pair in pairs]
         dd["z_norm_rsc_large"] = z_norm(dd["rsc_large"])
         dd["cov_large"] = [self.neural_d["cov_mat_large"][pair] for pair in pairs]
@@ -333,6 +324,17 @@ class SegmentationMap:
 
         return df
 
+    def _make_condition_df(self, gt, model, n_components, layer, probe):
+        self.probe = probe
+        self.set_primary_seg_map(gt=gt, model=model, n_components=n_components, layer=layer)
+        df = self.neural_df
+        df['gt'] = gt
+        df['model'] = model
+        df['n_components'] = n_components
+        df['layer'] = layer
+        df['probe'] = probe
+
+        return df 
     def calculate_rsc(self, neuron1, neuron2, flag=True):
         """
         Calculates the noise correlation between two neurons for the given image
