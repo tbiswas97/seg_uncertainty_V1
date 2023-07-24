@@ -70,7 +70,7 @@ def make_image_stack(dat, n_im=None):
 
 
 # MODEL SELECTION
-def fit_model(dat, model_type="ref", n_components=np.array([3])):
+def _fit_model(dat, model_type="ref", n_components=np.array([3])):
     """
     Parameters:
         dat: ND array of n_im,height,weight,channels
@@ -84,9 +84,10 @@ def fit_model(dat, model_type="ref", n_components=np.array([3])):
     Output:
         array of n_im model results (singleton if n_im=1)
     """
-    im_all = dat
+    #im_all = dat
+    im = dat
     K_list = n_components
-    ny, nx = dat[0].shape[0:2]
+    ny, nx = im.shape[0:2]
     N_list = np.array(
         [
             (ny, nx),
@@ -190,15 +191,25 @@ def fit_model(dat, model_type="ref", n_components=np.array([3])):
             verbose=False,
         )
 
-    print("Fitting model {} for {} images".format(model_type, len(im_all)))
-    res_arr = np.asarray([_fit(im) for im in im_all])
-    print("Fitting complete")
+    #res_arr = np.asarray([_fit(im) for im in im_all])
+    res_arr = _fit(im)
 
     if len(res_arr) == 1:
         res_arr = res_arr[0]
 
     return res_arr
 
+def _gen_seg_map_from_weights(weights, size):
+    Ny,Nx = size
+    ny,nx = weights.shape
+    smap = weights.argmax(1).reshape((size))
+    if ny != Ny:
+        assert Ny//ny == Nx//nx
+        multiplier = Ny // ny
+        m = multiplier
+        smap = smap.repeat(m,0).repeat(m,1)
+
+    return smap
 
 def _gen_seg_map(res, N_list, standard_size=True):
     """
@@ -235,7 +246,7 @@ def main(model_type="a"):
     """
     im_all, N_list = make_image_stack(dat, n_im=2)
 
-    res_arr = fit_model(im_all, model_type=model_type)
+    res_arr = _fit_model(im_all, model_type=model_type)
 
     seg_maps = []
 
