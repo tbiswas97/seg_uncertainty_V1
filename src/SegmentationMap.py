@@ -309,16 +309,20 @@ class SegmentationMap:
         total_neurons = len(coords)
         pairs = list(permutations(range(total_neurons), 2))
 
+        z_norm = lambda x: (x - np.mean(x))/(np.std(x))
+        
         dd = {}
         dd["pairs"] = pairs
         dd["neuron1"] = [pair[0] for pair in pairs]
         dd["neuron2"] = [pair[1] for pair in pairs]
         dd["rsc_large"] = [self.neural_d["corr_mat_large"][pair] for pair in pairs]
+        dd["z_norm_rsc_large"] = z_norm(dd["rsc_large"])
         dd["cov_large"] = [self.neural_d["cov_mat_large"][pair] for pair in pairs]
         dd["rsc_small"] = [self.neural_d["corr_mat_small"][pair] for pair in pairs]
         dd["cov_small"] = [self.neural_d["cov_mat_small"][pair] for pair in pairs]
-        diff_mat = self.neural_d["corr_mat_large"] - self.neural_d["corr_mat_small"]
+        diff_mat = self.neural_d["corr_mat_small"]-self.neural_d["corr_mat_large"] 
         dd["delta_rsc"] = [diff_mat[pair] for pair in pairs]
+        dd["pd_delta_rsc"] = (dd["rsc_small"] - dd["rsc_large"])/dd["rsc_small"]
         dd["distance"] = [
             tb.euclidean_distance(coords[pair[0]], coords[pair[1]]) for pair in pairs
         ]
