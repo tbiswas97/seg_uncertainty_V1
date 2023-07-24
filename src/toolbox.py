@@ -1345,17 +1345,33 @@ def get_coord_segment(coord, segmap, origin="center"):
     except IndexError:
         print("Probe is outside of image area")
 
+
 def euclidean_distance(coord1, coord2):
     """
     Calculate the Euclidean distance between two coordinates (x1, y1) and (x2, y2).
-    
+
     Parameters:
         x1 (float): x-coordinate of the first point.
         y1 (float): y-coordinate of the first point.
         x2 (float): x-coordinate of the second point.
         y2 (float): y-coordinate of the second point.
-    
+
     Returns:
         float: The Euclidean distance between the two points.
     """
-    return math.sqrt((coord2[0]-coord1[0])**2 + (coord2[1]-coord1[1])**2)
+    return math.sqrt((coord2[0] - coord1[0]) ** 2 + (coord2[1] - coord1[1]) ** 2)
+
+
+def is_centered(coord, size=(256, 256), thresh=25):
+    """
+    Determines whether a coordinate is in the center of an image."""
+    
+    cy = size[0]//2
+    cx = size[1]//2
+
+    _is_centered_x = lambda x: (x<cx-thresh) or (x>cx+thresh)
+    _is_centered_y = lambda y: (y<cy-thresh) or (y>cy+thresh)
+
+    return _is_centered_x(coord[1]) and _is_centered_y(coord[0])
+
+
