@@ -1369,8 +1369,8 @@ def is_centered(coord, size=(256, 256), thresh=25):
     cy = size[0]//2
     cx = size[1]//2
 
-    _is_centered_x = lambda x: (x<cx-thresh) or (x>cx+thresh)
-    _is_centered_y = lambda y: (y<cy-thresh) or (y>cy+thresh)
+    _is_centered_x = lambda x: not ((x<cx-thresh) or (x>cx+thresh))
+    _is_centered_y = lambda y: not ((y<cy-thresh) or (y>cy+thresh))
 
     return _is_centered_x(coord[1]) and _is_centered_y(coord[0])
 
