@@ -2,6 +2,7 @@ import os
 import import_utils
 import toolbox as tb
 import numpy as np
+from scipy.stats import mannwhitneyu
 import pandas as pd
 import seaborn as sns
 import segment as seg
@@ -71,7 +72,7 @@ class SegmentationMap:
 
         return a + b
 
-    def fit_model(self, model="ac",max_components=10):
+    def fit_model(self, model="ac", max_components=10):
         """
         Runs perceptual segmentation model on self.im
         Models are defined in models_deep_seg.py
@@ -91,9 +92,9 @@ class SegmentationMap:
         n_components = self.model_components
         if 3 not in n_components:
             n_components = np.append(n_components, 3)
-        
-        #n_components = n_components[n_components<max_components]
-        #%FIXME: create a way to threshold the number of components
+
+        # n_components = n_components[n_components<max_components]
+        # %FIXME: create a way to threshold the number of components
         # run model 'a'
         if "a" in model:
             self.model_res["a"] = seg._fit_model(
@@ -135,6 +136,40 @@ class SegmentationMap:
                         smap = smap.repeat(m, 0).repeat(m, 1)
 
                     self.seg_maps[key][smm.n_components].append(smap)
+
+        return None
+
+    def crop(self, spec={"y": (23, 278), "x": (23, 278)}, size=(256, 256), center=True):
+        """
+        Crops an image, parameters specify different methods of cropping, based on toolbox.py -> crop
+
+        In SegmentationMap object crops the following attributes:
+
+        self.im -> self.c_im (RGB image from BSDS500)
+        self.gts -> self.c_gts(list of ground truth annotated images from BSDS500)
+        self.seg_map -> self.c_seg_map (nested dict of model results)
+
+        Parameters:
+        -----------
+        spec : dict
+            {y:(y1,y2),x:(x1,x2)}
+        size : tup
+            crop
+        center : bool
+            Determines whether size parameter is calculated from the center (True) or from the origin
+
+        """
+        self.c_im = tb.crop_RGB(self.im, spec, size, center)
+        self.c_gts = np.asarray(tb.crop(self.gts, spec, size, center))
+        self.c_seg_maps = dict.fromkeys(self.seg_maps)
+        d = self.c_seg_maps
+        for key in d.keys():
+            d[key] = dict.fromkeys(self.seg_maps[key])
+            for _key in d[key].keys():
+                to_crop = np.asarray(self.seg_maps[key][_key][:])
+                d[key][_key] = np.asarray(tb.crop(to_crop, spec, size, center))
+
+        self.cropped = True
 
         return None
 
@@ -182,39 +217,40 @@ class SegmentationMap:
         else:
             pass
 
-    def crop(self, spec={"y": (23, 278), "x": (23, 278)}, size=(256, 256), center=True):
+    def mwu_seg_map(self, stat, gt=None, model="c", n_components=None, layer=0,probe=1):
         """
-        Crops an image, parameters specify different methods of cropping, based on toolbox.py -> crop
-
-        In SegmentationMap object crops the following attributes:
-
-        self.im -> self.c_im (RGB image from BSDS500)
-        self.gts -> self.c_gts(list of ground truth annotated images from BSDS500)
-        self.seg_map -> self.c_seg_map (nested dict of model results)
+        Sets the mann-whitney-u p-value for same segment vs. different segment delta_rsc
 
         Parameters:
         -----------
-        spec : dict
-            {y:(y1,y2),x:(x1,x2)}
-        size : tup
-            crop
-        center : bool
-            Determines whether size parameter is calculated from the center (True) or from the origin
+        stat : str
+            must be a field in self.neural_df
+        gt : bool 
+            if gt is True, the ground-truth annotated image specified by n_components is used to generate data
+        model : str
+            specifies which model to use as a key
+        n_components : int
+            number of components to use as a key
+        layer : int
+            layer INDEX to use as a key, index 0 means the 16th layer
+            each proceeding index corresponds to 4 layers down
+        probe : int
+            specifies which probe to use to generate data
 
+        Returns:
+        --------
+        None
         """
-        self.c_im = tb.crop_RGB(self.im, spec, size, center)
-        self.c_gts = np.asarray(tb.crop(self.gts, spec, size, center))
-        self.c_seg_maps = dict.fromkeys(self.seg_maps)
-        d = self.c_seg_maps
-        for key in d.keys():
-            d[key] = dict.fromkeys(self.seg_maps[key])
-            for _key in d[key].keys():
-                to_crop = np.asarray(self.seg_maps[key][_key][:])
-                d[key][_key] = np.asarray(tb.crop(to_crop, spec, size, center))
+        self.probe = probe
+        self.set_primary_seg_map(gt=gt, model=model, n_components=n_components, layer=layer)
+        if stat == "delta_rsc" or stat == "delta_rsc_pd":
+            df = self.centered_df
+            x = df[stat][df.seg_flag==True].dropna().values
+            y = df[stat][df.seg_flag==False].dropna().values
+        
+        res = mannwhitneyu(x, y)
 
-        self.cropped = True
-
-        return None
+        
 
     def get_neural_data(self, Session=None, probe=None, exists=False):
         """
@@ -246,6 +282,8 @@ class SegmentationMap:
             self.probe = probe
             S.use_probe(probe)
             # TODO implement case where probe is not specified
+        else:
+            raise ValueError("Probe must be specified")
 
         d = S.get_image_data(self.iid_idx)
 
@@ -258,62 +296,38 @@ class SegmentationMap:
             d["cov_mat_large"] = np.cov(d["resp_large"])
             d["corr_mat_small"] = np.corrcoef(d["resp_small"])
             d["cov_mat_small"] = np.cov(d["resp_small"])
-        except RuntimeWarning: #suppresses division by zero warning
+        except RuntimeWarning:  # suppresses division by zero warning
             pass
 
         self.neural_d = d
         self.neural_df = self._make_neural_df()
+        df = self.neural_df
+        self.centered_df = df[df["centered"]==True]
         self.session_loaded = True
-
-    def get_full_df(self,models=['c'],probes=[1,3,4]):
-        models = models
-        n_components = self.k
-        layers = range(4)
-        probes = probes
-        
-        to_concat = []
-        for probe in probes:
-            for model in models:
-                for k in n_components:
-                    for layer in layers: 
-                        to_concat.append(self._make_condition_df(None,model,k,layer,probe))
-                        
-        df1 = pd.concat(to_concat).reset_index(drop=True)
-            
-        n_components_gts = list(self.users_d.keys())
-        
-        gt_concat = []
-    
-        for probe in probes:
-            for k in n_components_gts:
-                gt_concat.append(self._make_condition_df(True,None,k,None,probe))
-                
-        df2 = pd.concat(gt_concat).reset_index(drop=True)
-        
-        return pd.concat([df1,df2]).reset_index(drop=True)
-
 
     def _make_neural_df(self):
         coords = self.neural_d["coords"]
         total_neurons = len(coords)
         pairs = list(permutations(range(total_neurons), 2))
 
-        z_norm = lambda x: (x - np.mean(x))/(np.std(x))
-        
+        z_norm = lambda x: (x - np.mean(x)) / (np.std(x))
+
         dd = {}
         dd["pairs"] = pairs
         dd["neuron1"] = [pair[0] for pair in pairs]
         dd["neuron1_centered"] = [tb.is_centered(coords[pair[0]]) for pair in pairs]
         dd["neuron2"] = [pair[1] for pair in pairs]
         dd["neuron2_centered"] = [tb.is_centered(coords[pair[1]]) for pair in pairs]
+        #dd["centered"] = (dd["neuron1_centered"] or dd["neuron2_centered"])
         dd["rsc_large"] = [self.neural_d["corr_mat_large"][pair] for pair in pairs]
         dd["z_norm_rsc_large"] = z_norm(dd["rsc_large"])
         dd["cov_large"] = [self.neural_d["cov_mat_large"][pair] for pair in pairs]
         dd["rsc_small"] = [self.neural_d["corr_mat_small"][pair] for pair in pairs]
+        dd["z_norm_rsc_small"] = z_norm(dd["rsc_small"])
         dd["cov_small"] = [self.neural_d["cov_mat_small"][pair] for pair in pairs]
-        diff_mat = self.neural_d["corr_mat_small"]-self.neural_d["corr_mat_large"] 
+        diff_mat = self.neural_d["corr_mat_small"] - self.neural_d["corr_mat_large"]
         dd["delta_rsc"] = [diff_mat[pair] for pair in pairs]
-        dd["pd_delta_rsc"] = (dd["rsc_small"] - dd["rsc_large"])/dd["rsc_small"]
+        dd["delta_rsc_pd"] = [((x-y)/x) for x, y in zip(dd["rsc_small"], dd["rsc_large"])]
         dd["distance"] = [
             tb.euclidean_distance(coords[pair[0]], coords[pair[1]]) for pair in pairs
         ]
@@ -326,15 +340,47 @@ class SegmentationMap:
 
     def _make_condition_df(self, gt, model, n_components, layer, probe):
         self.probe = probe
-        self.set_primary_seg_map(gt=gt, model=model, n_components=n_components, layer=layer)
+        self.set_primary_seg_map(
+            gt=gt, model=model, n_components=n_components, layer=layer
+        )
         df = self.neural_df
-        df['gt'] = gt
-        df['model'] = model
-        df['n_components'] = n_components
-        df['layer'] = layer
-        df['probe'] = probe
+        df["gt"] = gt
+        df["model"] = model
+        df["n_components"] = n_components
+        df["layer"] = layer
+        df["probe"] = probe
 
-        return df 
+        return df
+
+    def get_full_df(self, models=["c"], probes=[1, 3, 4]):
+        models = models
+        n_components = self.k
+        layers = range(4)
+        probes = probes
+
+        to_concat = []
+        for probe in probes:
+            for model in models:
+                for k in n_components:
+                    for layer in layers:
+                        to_concat.append(
+                            self._make_condition_df(None, model, k, layer, probe)
+                        )
+
+        df1 = pd.concat(to_concat).reset_index(drop=True)
+
+        n_components_gts = list(self.users_d.keys())
+
+        gt_concat = []
+
+        for probe in probes:
+            for k in n_components_gts:
+                gt_concat.append(self._make_condition_df(True, None, k, None, probe))
+
+        df2 = pd.concat(gt_concat).reset_index(drop=True)
+
+        return pd.concat([df1, df2]).reset_index(drop=True)
+
     def calculate_rsc(self, neuron1, neuron2, flag=True):
         """
         Calculates the noise correlation between two neurons for the given image
@@ -428,12 +474,12 @@ class SegmentationMap:
 
     # Display functions: if self.cropped is True, then display the cropped image
 
-    def disp(self,scale=(2,2)):
+    def disp(self, scale=(2, 2)):
         if self.cropped:
             im = self.c_im
         else:
             im = self.im
-        tb.disp(im,scale=scale)
+        tb.disp(im, scale=scale)
 
         return None
 
