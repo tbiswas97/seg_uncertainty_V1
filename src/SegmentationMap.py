@@ -217,7 +217,16 @@ class SegmentationMap:
         else:
             pass
 
-    def mwu_seg_map(self, stat, gt=None, model="c", n_components=None, layer=0,probe=1):
+    def mwu_seg_map(
+        self,
+        stat="delta_rsc_pd",
+        alternative="less",
+        gt=None,
+        model="c",
+        n_components=None,
+        layer=0,
+        probe=1,
+    ):
         """
         Sets the mann-whitney-u p-value for same segment vs. different segment delta_rsc
 
@@ -225,7 +234,12 @@ class SegmentationMap:
         -----------
         stat : str
             must be a field in self.neural_df
-        gt : bool 
+        alternative : str
+            from scipy.stats.mannwhitneyu:
+            'two-sided': the distributions are not equal, i.e. *F(u) ≠ G(u)* for at least one *u*.
+            'less': the distribution underlying x is stochastically less than the distribution underlying y, i.e. *F(u) > G(u)* for all *u*.
+            'greater': the distribution underlying x is stochastically greater than the distribution underlying y, i.e. *F(u) < G(u)* for all *u*.
+        gt : bool
             if gt is True, the ground-truth annotated image specified by n_components is used to generate data
         model : str
             specifies which model to use as a key
@@ -242,15 +256,24 @@ class SegmentationMap:
         None
         """
         self.probe = probe
-        self.set_primary_seg_map(gt=gt, model=model, n_components=n_components, layer=layer)
-        if stat == "delta_rsc" or stat == "delta_rsc_pd":
+        self.set_primary_seg_map(
+            gt=gt, model=model, n_components=n_components, layer=layer
+        )
+        if stat == "delta_rsc" or stat == "delta_rsc_pdc":
             df = self.centered_df
-            x = df[stat][df.seg_flag==True].dropna().values
-            y = df[stat][df.seg_flag==False].dropna().values
-        
-        res = mannwhitneyu(x, y)
+            x = df[stat][df.seg_flag == True].dropna().values
+            y = df[stat][df.seg_flag == False].dropna().values
+        elif stat == "z_norm_rsc_large":
+            x = df[stat][df.seg_flag == True].dropna().values
+            y = df[stat][df.seg_flag == False].dropna().values
 
-        
+        try:
+            res = mannwhitneyu(x, y, alternative=alternative)
+        except ValueError:
+            res = None
+            print("All neurons are in one segment")
+
+        return res
 
     def get_neural_data(self, Session=None, probe=None, exists=False):
         """
@@ -302,7 +325,9 @@ class SegmentationMap:
         self.neural_d = d
         self.neural_df = self._make_neural_df()
         df = self.neural_df
-        #self.centered_df = df[df["centered"]==True]
+        self.centered_df = df[
+            (df.neuron1_centered == True) | (df.neuron2_centered == True)
+        ]
         self.session_loaded = True
 
     def _make_neural_df(self):
@@ -318,14 +343,15 @@ class SegmentationMap:
         dd["neuron1_centered"] = [tb.is_centered(coords[pair[0]]) for pair in pairs]
         dd["neuron2"] = [pair[1] for pair in pairs]
         dd["neuron2_centered"] = [tb.is_centered(coords[pair[1]]) for pair in pairs]
-        #dd["centered"] = (dd["neuron1_centered"] or dd["neuron2_centered"])
         dd["rsc_large"] = [self.neural_d["corr_mat_large"][pair] for pair in pairs]
         dd["cov_large"] = [self.neural_d["cov_mat_large"][pair] for pair in pairs]
         dd["rsc_small"] = [self.neural_d["corr_mat_small"][pair] for pair in pairs]
         dd["cov_small"] = [self.neural_d["cov_mat_small"][pair] for pair in pairs]
         diff_mat = self.neural_d["corr_mat_small"] - self.neural_d["corr_mat_large"]
         dd["delta_rsc"] = [diff_mat[pair] for pair in pairs]
-        dd["delta_rsc_pd"] = [((x-y)/x) for x, y in zip(dd["rsc_small"], dd["rsc_large"])]
+        dd["delta_rsc_pdc"] = tb.calculate_percent_change(
+            dd["rsc_small"], dd["rsc_large"]
+        )
         dd["distance"] = [
             tb.euclidean_distance(coords[pair[0]], coords[pair[1]]) for pair in pairs
         ]
@@ -333,8 +359,8 @@ class SegmentationMap:
         dd["segment_2"] = [self.neural_d["segments"][pair[1]] for pair in pairs]
         df = pd.DataFrame.from_dict(dd)
         df["seg_flag"] = df["segment_1"] == df["segment_2"]
-        df.insert(6,'z_norm_rsc_large', z_norm(df["rsc_large"]))
-        df.insert(9,'z_norm_rsc_small', z_norm(df["rsc_small"]))
+        df.insert(6, "z_norm_rsc_large", z_norm(df["rsc_large"]))
+        df.insert(9, "z_norm_rsc_small", z_norm(df["rsc_small"]))
 
         return df
 
