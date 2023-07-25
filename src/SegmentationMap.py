@@ -302,7 +302,7 @@ class SegmentationMap:
         self.neural_d = d
         self.neural_df = self._make_neural_df()
         df = self.neural_df
-        self.centered_df = df[df["centered"]==True]
+        #self.centered_df = df[df["centered"]==True]
         self.session_loaded = True
 
     def _make_neural_df(self):
@@ -320,10 +320,8 @@ class SegmentationMap:
         dd["neuron2_centered"] = [tb.is_centered(coords[pair[1]]) for pair in pairs]
         #dd["centered"] = (dd["neuron1_centered"] or dd["neuron2_centered"])
         dd["rsc_large"] = [self.neural_d["corr_mat_large"][pair] for pair in pairs]
-        dd["z_norm_rsc_large"] = z_norm(dd["rsc_large"])
         dd["cov_large"] = [self.neural_d["cov_mat_large"][pair] for pair in pairs]
         dd["rsc_small"] = [self.neural_d["corr_mat_small"][pair] for pair in pairs]
-        dd["z_norm_rsc_small"] = z_norm(dd["rsc_small"])
         dd["cov_small"] = [self.neural_d["cov_mat_small"][pair] for pair in pairs]
         diff_mat = self.neural_d["corr_mat_small"] - self.neural_d["corr_mat_large"]
         dd["delta_rsc"] = [diff_mat[pair] for pair in pairs]
@@ -335,6 +333,8 @@ class SegmentationMap:
         dd["segment_2"] = [self.neural_d["segments"][pair[1]] for pair in pairs]
         df = pd.DataFrame.from_dict(dd)
         df["seg_flag"] = df["segment_1"] == df["segment_2"]
+        df.insert(6,'z_norm_rsc_large', z_norm(df["rsc_large"]))
+        df.insert(9,'z_norm_rsc_small', z_norm(df["rsc_small"]))
 
         return df
 
