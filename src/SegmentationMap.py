@@ -13,6 +13,45 @@ from Session import Session as Sess
 class SegmentationMap:
     """
     Initiate a SegmentationMap object from an image ID of the BSDS500
+
+    Atrributes:
+    ----------
+
+    iid : str
+        Image ID of the BSDS500
+    iid_idx : int
+        index of the image in the particular experiment
+    jpg_path : str
+        path to .jpg file from BSDS500
+    seg_path : str
+        path to .mat seg file from BSDS500
+    im : ndarray
+        (h x w x 3) RGB image array
+    gts : list of ndarrays
+    model_res : dict
+        segmentation model results keys of dict organize by parameters and model results are ndarrays
+    k : list of ints
+        number of segments across users
+    users_d : dict
+    model_components : list of ints
+        initialized as same as k but eventually reflects the number of components in the segmentation model
+    seg_maps : dict
+        segmentation maps from the model results keys of dict organize by parameters and segmaps are ndarrays
+    cropped : bool
+        whether the crop method has been used or not
+    session_loaded : bool
+        sessions are representations of neural data that can be loaded into memory, session_loaded is True if the session is loaded into memory
+    primary_seg_map : ndarray
+        the primary segmentation map is used to generate statistics for the segmentation
+    c_im : ndarray
+        same as im, but cropped
+    c_gts : list of ndarrays
+        same as gts, but cropped
+    c_seg_maps : dict
+        same as seg_maps, but cropped
+    Session : Session
+        Session object is defined in ./Session.py 
+
     """
 
     def __init__(self, iid):
@@ -72,7 +111,7 @@ class SegmentationMap:
 
         return a + b
 
-    def fit_model(self, model="ac", max_components=10):
+    def fit_model(self, model="ac", n_components=None, max_components=10):
         """
         Runs perceptual segmentation model on self.im
         Models are defined in models_deep_seg.py
@@ -89,7 +128,11 @@ class SegmentationMap:
             Model object defined in models_deep_seg.py
         self.seg_maps : dict
         """
-        n_components = self.model_components
+        if n_components is not None:
+            pass
+        else:
+            n_components = self.model_components
+
         if 3 not in n_components:
             n_components = np.append(n_components, 3)
 
@@ -217,65 +260,7 @@ class SegmentationMap:
         else:
             pass
 
-    def mwu_seg_map(
-        self,
-        stat="delta_rsc_pd",
-        alternative="less",
-        gt=None,
-        model="c",
-        n_components=None,
-        layer=0,
-        probe=1,
-    ):
-        """
-        Sets the mann-whitney-u p-value for same segment vs. different segment delta_rsc
-
-        Parameters:
-        -----------
-        stat : str
-            must be a field in self.neural_df
-        alternative : str
-            from scipy.stats.mannwhitneyu:
-            'two-sided': the distributions are not equal, i.e. *F(u) ≠ G(u)* for at least one *u*.
-            'less': the distribution underlying x is stochastically less than the distribution underlying y, i.e. *F(u) > G(u)* for all *u*.
-            'greater': the distribution underlying x is stochastically greater than the distribution underlying y, i.e. *F(u) < G(u)* for all *u*.
-        gt : bool
-            if gt is True, the ground-truth annotated image specified by n_components is used to generate data
-        model : str
-            specifies which model to use as a key
-        n_components : int
-            number of components to use as a key
-        layer : int
-            layer INDEX to use as a key, index 0 means the 16th layer
-            each proceeding index corresponds to 4 layers down
-        probe : int
-            specifies which probe to use to generate data
-
-        Returns:
-        --------
-        None
-        """
-        self.probe = probe
-        self.set_primary_seg_map(
-            gt=gt, model=model, n_components=n_components, layer=layer
-        )
-        if stat == "delta_rsc" or stat == "delta_rsc_pdc":
-            df = self.centered_df
-            x = df[stat][df.seg_flag == True].dropna().values
-            y = df[stat][df.seg_flag == False].dropna().values
-        elif stat == "z_norm_rsc_large":
-            x = df[stat][df.seg_flag == True].dropna().values
-            y = df[stat][df.seg_flag == False].dropna().values
-
-        try:
-            res = mannwhitneyu(x, y, alternative=alternative)
-        except ValueError:
-            res = None
-            print("All neurons are in one segment")
-
-        return res
-
-    def get_neural_data(self, Session=None, probe=None, exists=False):
+    def get_neural_data(self, Session=None, probe=None, exists=False) -> None:
         """
         Get neural response data from Session object
 
@@ -330,7 +315,7 @@ class SegmentationMap:
         ]
         self.session_loaded = True
 
-    def _make_neural_df(self):
+    def _make_neural_df(self) -> pd.DataFrame:
         coords = self.neural_d["coords"]
         total_neurons = len(coords)
         pairs = list(permutations(range(total_neurons), 2))
@@ -364,7 +349,7 @@ class SegmentationMap:
 
         return df
 
-    def _make_condition_df(self, gt, model, n_components, layer, probe):
+    def _make_condition_df(self, gt, model, n_components, layer, probe) -> pd.DataFrame:
         self.probe = probe
         self.set_primary_seg_map(
             gt=gt, model=model, n_components=n_components, layer=layer
@@ -378,7 +363,7 @@ class SegmentationMap:
 
         return df
 
-    def get_full_df(self, models=["c"], probes=[1, 3, 4]):
+    def get_full_df(self, models=["c"], probes=[1, 3, 4]) -> pd.DataFrame:
         models = models
         n_components = self.k
         layers = range(4)
@@ -407,7 +392,83 @@ class SegmentationMap:
 
         return pd.concat([df1, df2]).reset_index(drop=True)
 
-    def calculate_rsc(self, neuron1, neuron2, flag=True):
+    def get_all_mwu(self, models=["c"], probes=[1, 3, 4]):
+        """
+        Calculates a p-value for each segmentation map
+        """
+        n_components = list(self.users_d.keys())
+        layers = range(4)
+
+        out = []
+        params = []
+        for probe in probes:
+            for model in models:
+                for k in n_components:
+                    for layer in layers:
+                        out.append(self._mwu_seg_map(None, model, k, layer, probe))
+                        params.append(model, k, layer, probe)
+
+        return out, params
+
+    def _mwu_seg_map(
+        self,
+        stat="delta_rsc_pd",
+        alternative="greater",
+        gt=None,
+        model="c",
+        n_components=None,
+        layer=0,
+        probe=1,
+    ):
+        """
+        Sets the mann-whitney-u p-value for same segment vs. different segment delta_rsc
+
+        Parameters:
+        -----------
+        stat : str
+            must be a field in self.neural_df
+        alternative : str
+            from scipy.stats.mannwhitneyu:
+            'two-sided': the distributions are not equal, i.e. *F(u) ≠ G(u)* for at least one *u*.
+            'less': the distribution underlying x is stochastically less than the distribution underlying y, i.e. *F(u) > G(u)* for all *u*.
+            'greater': the distribution underlying x is stochastically greater than the distribution underlying y, i.e. *F(u) < G(u)* for all *u*.
+        gt : bool
+            if gt is True, the ground-truth annotated image specified by n_components is used to generate data
+        model : str
+            specifies which model to use as a key
+        n_components : int
+            number of components to use as a key
+        layer : int
+            layer INDEX to use as a key, index 0 means the 16th layer
+            each proceeding index corresponds to 4 layers down
+        probe : int
+            specifies which probe to use to generate data
+
+        Returns:
+        --------
+        None
+        """
+        self.probe = probe
+        self.set_primary_seg_map(
+            gt=gt, model=model, n_components=n_components, layer=layer
+        )
+        if stat == "delta_rsc" or stat == "delta_rsc_pdc":
+            df = self.centered_df
+            x = df[stat][df.seg_flag == True].dropna().values
+            y = df[stat][df.seg_flag == False].dropna().values
+        elif stat == "z_norm_rsc_large":
+            x = df[stat][df.seg_flag == True].dropna().values
+            y = df[stat][df.seg_flag == False].dropna().values
+
+        try:
+            res = mannwhitneyu(x, y, alternative=alternative)
+        except ValueError:
+            res = None
+            print("All neurons are in one segment")
+
+        return res
+
+    def _calculate_rsc(self, neuron1, neuron2, flag=True):
         """
         Calculates the noise correlation between two neurons for the given image
         Parameters:
