@@ -136,7 +136,9 @@ class SegmentationMap:
         if 3 not in n_components:
             n_components = np.append(n_components, 3)
 
-        # n_components = n_components[n_components<max_components]
+        n_components = n_components[n_components<max_components]
+
+        self.model_components = n_components
         # %FIXME: create a way to threshold the number of components
         # run model 'a'
         if "a" in model:
@@ -365,7 +367,7 @@ class SegmentationMap:
 
     def get_full_df(self, models=["c"], probes=[1, 3, 4]) -> pd.DataFrame:
         models = models
-        n_components = self.k
+        n_components = self.model_components
         layers = range(4)
         probes = probes
 
@@ -396,8 +398,10 @@ class SegmentationMap:
         """
         Calculates a p-value for each segmentation map
         """
-        n_components = list(self.users_d.keys())
+        models = models
+        n_components = self.model_components
         layers = range(4)
+        probes = probes
 
         out = []
         params = []
