@@ -50,7 +50,7 @@ class SegmentationMap:
     c_seg_maps : dict
         same as seg_maps, but cropped
     Session : Session
-        Session object is defined in ./Session.py 
+        Session object is defined in ./Session.py
 
     """
 
@@ -136,10 +136,9 @@ class SegmentationMap:
         if 3 not in n_components:
             n_components = np.append(n_components, 3)
 
-        n_components = n_components[n_components<max_components]
+        n_components = n_components[n_components < max_components]
 
         self.model_components = n_components
-        # %FIXME: create a way to threshold the number of components
         # run model 'a'
         if "a" in model:
             self.model_res["a"] = seg._fit_model(
@@ -312,7 +311,7 @@ class SegmentationMap:
         self.neural_d = d
         self.neural_df = self._make_neural_df()
         df = self.neural_df
-        self.centered_df = df[
+        self.centered_df = df.loc[
             (df.neuron1_centered == True) | (df.neuron2_centered == True)
         ]
         self.session_loaded = True
@@ -347,7 +346,10 @@ class SegmentationMap:
         df = pd.DataFrame.from_dict(dd)
         df["seg_flag"] = df["segment_1"] == df["segment_2"]
         df.insert(6, "z_norm_rsc_large", z_norm(df["rsc_large"]))
-        df.insert(9, "z_norm_rsc_small", z_norm(df["rsc_small"]))
+        df.insert(7,"p_val_z_norm_rsc_large", self._mwu_df(df,stat="z_norm_rsc_large")[1])
+        df.insert(10, "z_norm_rsc_small", z_norm(df["rsc_small"]))
+        df.insert(13,"p_val_delta_rsc",self._mwu_df(df,stat="delta_rsc")[1])
+        df.insert(15,"p_val_delta_rsc_pdc",self._mwu_df(df,stat="delta_rsc_pdc")[1])
 
         return df
 
@@ -392,9 +394,14 @@ class SegmentationMap:
 
         df2 = pd.concat(gt_concat).reset_index(drop=True)
 
-        return pd.concat([df1, df2]).reset_index(drop=True)
+        out = pd.concat([df1, df2]).reset_index(drop=True)
 
-    def get_all_mwu(self, models=["c"], probes=[1, 3, 4]):
+        out['img_idx'] = self.iid_idx
+        out['iid'] = self.iid
+
+        return out
+
+    def get_all_mwu(self, stat="delta_rsc_pdc", models=["c"], probes=[1, 3, 4]):
         """
         Calculates a p-value for each segmentation map
         """
@@ -409,15 +416,26 @@ class SegmentationMap:
             for model in models:
                 for k in n_components:
                     for layer in layers:
-                        out.append(self._mwu_seg_map(None, model, k, layer, probe))
-                        params.append(model, k, layer, probe)
+                        out.append(
+                            self._mwu_seg_map(
+                                stat=stat,
+                                gt=None,
+                                model=model,
+                                n_components=k,
+                                layer=layer,
+                                probe=probe,
+                            )
+                        )
+                        params.append((model, k, layer, probe))
+
+        # %TODO: implement for ground-truth data too
 
         return out, params
 
     def _mwu_seg_map(
         self,
-        stat="delta_rsc_pd",
-        alternative="greater",
+        stat="delta_rsc_pdc",
+        alternative="less",
         gt=None,
         model="c",
         n_components=None,
@@ -456,21 +474,31 @@ class SegmentationMap:
         self.set_primary_seg_map(
             gt=gt, model=model, n_components=n_components, layer=layer
         )
+
+        df = self.neural_df
+        res = self._mwu_df(df,stat=stat,alternative=alternative)
+
+        return res
+
+    def _mwu_df(self,df,stat="delta_rsc_pdc", alternative='less'):
+        df = df 
         if stat == "delta_rsc" or stat == "delta_rsc_pdc":
-            df = self.centered_df
+            if "neuron1_centered" in df.columns:
+                if "neuron2_centered" in df.columns:
+                    df = df.loc[(df["neuron1_centered"] == True) | (df["neuron2_centered"] == True)]
             x = df[stat][df.seg_flag == True].dropna().values
             y = df[stat][df.seg_flag == False].dropna().values
         elif stat == "z_norm_rsc_large":
             x = df[stat][df.seg_flag == True].dropna().values
             y = df[stat][df.seg_flag == False].dropna().values
-
         try:
             res = mannwhitneyu(x, y, alternative=alternative)
         except ValueError:
-            res = None
+            res = (None,None)
             print("All neurons are in one segment")
-
+        
         return res
+
 
     def _calculate_rsc(self, neuron1, neuron2, flag=True):
         """
