@@ -261,7 +261,7 @@ class SegmentationMap:
         else:
             pass
 
-    def get_neural_data(self, Session=None, probe=None, exists=False) -> None:
+    def get_neural_data(self, Session=None, probe=None, norm=True, exists=False) -> None:
         """
         Get neural response data from Session object
 
@@ -300,6 +300,10 @@ class SegmentationMap:
             tb.get_coord_segment(coord, self.primary_seg_map) for coord in d["coords"]
         ]
 
+        z_norm = lambda x: (x - np.mean(x)) / (np.std(x))
+        if norm: 
+            d["resp_large"] = z_norm(d["resp_large"])
+            d["resp_small"] = z_norm(d["resp_small"])
         try:
             d["corr_mat_large"] = np.corrcoef(d["resp_large"])
             d["cov_mat_large"] = np.cov(d["resp_large"])
@@ -402,6 +406,7 @@ class SegmentationMap:
         return out
 
     def get_all_mwu(self, stat="delta_rsc_pdc", models=["c"], probes=[1, 3, 4]):
+        #TODO: %cleanup - maybe delete this function?
         """
         Calculates a p-value for each segmentation map
         """
@@ -435,7 +440,7 @@ class SegmentationMap:
     def _mwu_seg_map(
         self,
         stat="delta_rsc_pdc",
-        alternative="less",
+        alternative="two-sided",
         gt=None,
         model="c",
         n_components=None,
@@ -480,7 +485,7 @@ class SegmentationMap:
 
         return res
 
-    def _mwu_df(self,df,stat="delta_rsc_pdc", alternative='less'):
+    def _mwu_df(self,df,stat="delta_rsc_pdc", alternative='two-sided'):
         df = df 
         if stat == "delta_rsc" or stat == "delta_rsc_pdc":
             if "neuron1_centered" in df.columns:
@@ -589,7 +594,6 @@ class SegmentationMap:
             sns.displot(
                 df, x="delta_rsc", hue="seg_flag", stat="density", multiple="stack"
             )
-        pass
 
     # Display functions: if self.cropped is True, then display the cropped image
 
