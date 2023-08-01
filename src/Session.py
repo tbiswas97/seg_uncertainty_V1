@@ -32,6 +32,9 @@ class Session:
         self.fields = list(self.d.keys())
 
     def use_probe(self, num=1) -> None:
+        if num == -1:
+            pass
+            
         self.probe = num - 1
         self.n_trials = self.d["T"][0][self.probe][0][0]
         # data from all probes below
