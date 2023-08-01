@@ -1374,7 +1374,7 @@ def is_centered(coord, size=(256, 256), thresh=25):
     return _is_centered_x(coord[1]) and _is_centered_y(coord[0])
 
 def calculate_percent_change(x_series,y_series,c=1):
-    out = [((x-y)/(x+c)) for x,y in zip(x_series,y_series)]
+    out = [((x-y)/(abs(x)+c)) for x,y in zip(x_series,y_series)]
     return out 
 
 
