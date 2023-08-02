@@ -262,7 +262,7 @@ class SegmentationMap:
             pass
 
     def get_neural_data(
-        self, Session=None, probe=None, norm=True, exists=False
+        self, Session=None, probe=None, norm=True, exists=False, full=True
     ) -> None:
         """
         Get neural response data from Session object
@@ -322,6 +322,8 @@ class SegmentationMap:
             (df.neuron1_centered == True) | (df.neuron2_centered == True)
         ]
         self.session_loaded = True
+        if full:
+            self.get_full_df()
 
     def _make_neural_df(self) -> pd.DataFrame:
         coords = self.neural_d["coords"]
@@ -352,25 +354,12 @@ class SegmentationMap:
         dd["segment_2"] = [self.neural_d["segments"][pair[1]] for pair in pairs]
         df = pd.DataFrame.from_dict(dd)
         df["seg_flag"] = df["segment_1"] == df["segment_2"]
-        df.insert(6,"fisher_rsc_large",np.arctanh(df["rsc_large"]))
-        df.insert(7,"fisher_rsc_small",np.arctanh(df["rsc_small"]))
+        df.insert(6, "fisher_rsc_large", np.arctanh(df["rsc_large"]))
+        df.insert(7, "fisher_rsc_small", np.arctanh(df["rsc_small"]))
 
         return df
-    
-    def make_plotting_df(self,param="delta"):
-        if param == "delta":
-            df = self.centered_df
-            df = df.replace([np.inf, -np.inf], np.nan)
-            df = df.dropna()
-        elif param == "rsc_large":
-            df = self.neural_df
-            df = df.replace([np.inf, -np.inf], np.nan)
-            df = df.dropna()
-        
-        return df
-        
-    def _make_condition_df(self, gt, model, n_components, layer, probe) -> pd.DataFrame:
-        self.probe = probe
+
+    def _make_condition_df(self, gt, model, n_components, layer) -> pd.DataFrame:
         self.set_primary_seg_map(
             gt=gt, model=model, n_components=n_components, layer=layer
         )
@@ -379,24 +368,20 @@ class SegmentationMap:
         df["model"] = model
         df["n_components"] = n_components
         df["layer"] = layer
-        df["probe"] = probe
 
         return df
 
-    def get_full_df(self, models=["c"], probes=[1, 3, 4]) -> pd.DataFrame:
+    def get_full_df(self, models=["c"]) -> pd.DataFrame:
         models = models
         n_components = self.model_components
         layers = range(4)
         probes = probes
 
         to_concat = []
-        for probe in probes:
-            for model in models:
-                for k in n_components:
-                    for layer in layers:
-                        to_concat.append(
-                            self._make_condition_df(None, model, k, layer, probe)
-                        )
+        for model in models:
+            for k in n_components:
+                for layer in layers:
+                    to_concat.append(self._make_condition_df(None, model, k, layer))
 
         df1 = pd.concat(to_concat).reset_index(drop=True)
 
@@ -404,9 +389,8 @@ class SegmentationMap:
 
         gt_concat = []
 
-        for probe in probes:
-            for k in n_components_gts:
-                gt_concat.append(self._make_condition_df(True, None, k, None, probe))
+        for k in n_components_gts:
+            gt_concat.append(self._make_condition_df(True, None, k, None))
 
         df2 = pd.concat(gt_concat).reset_index(drop=True)
 
@@ -414,6 +398,10 @@ class SegmentationMap:
 
         out["img_idx"] = self.iid_idx
         out["iid"] = self.iid
+        self.full_df = out
+        self.full_centered_df = out.loc[
+            (out.neuron1_centered == True) | (out.neuron2_centered == True)
+        ]
 
         return out
 
