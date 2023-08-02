@@ -8,6 +8,7 @@ import seaborn as sns
 import segment as seg
 from itertools import permutations
 from Session import Session as Sess
+from Session import DEFAULT_PROBES 
 
 
 class SegmentationMap:
@@ -133,8 +134,8 @@ class SegmentationMap:
         else:
             n_components = self.model_components
 
-        if 3 not in n_components:
-            n_components = np.append(n_components, 3)
+        #if 3 not in n_components:
+            #n_components = np.append(n_components, 3)
 
         n_components = n_components[n_components < max_components]
 
@@ -257,12 +258,12 @@ class SegmentationMap:
                 median_n_components = temp[median_idx]
                 self.primary_seg_map = maps["c"][median_n_components][layer]
         if self.session_loaded:
-            self.get_neural_data(probe=self.probe)
+            self.get_neural_data()
         else:
             pass
 
     def get_neural_data(
-        self, Session=None, probe=None, norm=True, exists=False, full=True
+        self, Session=None, probe=DEFAULT_PROBES, norm=True, exists=False, full=True
     ) -> None:
         """
         Get neural response data from Session object
@@ -367,15 +368,22 @@ class SegmentationMap:
         df["gt"] = gt
         df["model"] = model
         df["n_components"] = n_components
-        df["layer"] = layer
+        
 
         return df
 
-    def get_full_df(self, models=["c"]) -> pd.DataFrame:
+    def get_full_df(self, Session=None, models=["c"]) -> pd.DataFrame:
+        if Session is not None:
+            S = Session
+            self.Session = Session
+        else:
+            S = self.Session
+            # TODO: implement default behavior for loading Session which directly loads from a directory
+        
+        self.session_loaded = True
         models = models
         n_components = self.model_components
         layers = range(4)
-        probes = probes
 
         to_concat = []
         for model in models:
