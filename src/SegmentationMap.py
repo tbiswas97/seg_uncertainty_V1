@@ -352,16 +352,23 @@ class SegmentationMap:
         dd["segment_2"] = [self.neural_d["segments"][pair[1]] for pair in pairs]
         df = pd.DataFrame.from_dict(dd)
         df["seg_flag"] = df["segment_1"] == df["segment_2"]
-        df.insert(6, "z_norm_rsc_large", z_norm(df["rsc_large"]))
-        df.insert(
-            7, "p_val_z_norm_rsc_large", self._mwu_df(df, stat="z_norm_rsc_large")[1]
-        )
-        df.insert(10, "z_norm_rsc_small", z_norm(df["rsc_small"]))
-        df.insert(13, "p_val_delta_rsc", self._mwu_df(df, stat="delta_rsc")[1])
-        df.insert(15, "p_val_delta_rsc_pdc", self._mwu_df(df, stat="delta_rsc_pdc")[1])
+        df.insert(6,"fisher_rsc_large",np.arctanh(df["rsc_large"]))
+        df.insert(7,"fisher_rsc_small",np.arctanh(df["rsc_small"]))
 
         return df
-
+    
+    def make_plotting_df(self,param="delta"):
+        if param == "delta":
+            df = self.centered_df
+            df = df.replace([np.inf, -np.inf], np.nan)
+            df = df.dropna()
+        elif param == "rsc_large":
+            df = self.neural_df
+            df = df.replace([np.inf, -np.inf], np.nan)
+            df = df.dropna()
+        
+        return df
+        
     def _make_condition_df(self, gt, model, n_components, layer, probe) -> pd.DataFrame:
         self.probe = probe
         self.set_primary_seg_map(
