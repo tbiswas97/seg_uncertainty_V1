@@ -1,6 +1,7 @@
 from import_utils import loadmat_h5, _load
 import import_utils
 import toolbox as tb
+import numpy as np
 import os
 
 
@@ -32,16 +33,32 @@ class Session:
         self.fields = list(self.d.keys())
 
     def use_probe(self, num=1) -> None:
-        if num == -1:
-            pass
+        if type(num) is list:
+            probe_nums = [val-1 for val in num ]
+            trials = []
+            to_concat_resp_large = []
+            to_concat_resp_small = []
+            to_concat_xy = []
             
-        self.probe = num - 1
-        self.n_trials = self.d["T"][0][self.probe][0][0]
-        # data from all probes below
-        self.resp_large = self.d["resp_large"][0][self.probe]
-        self.resp_small = self.d["resp_small"][0][self.probe]
-        self.xy_coords = self.d["XYch"][0][self.probe]
-        self.np_coords = self._get_neuron_np_coords()
+            for probe in probe_nums:
+                trials.append(self.d["T"][0][probe][0][0])
+                to_concat_resp_large.append(self.d["resp_large"][0][probe])
+                to_concat_resp_small.append(self.d["resp_small"][0][probe])
+                to_concat_xy.append(self.d["XYch"][0][probe])
+            self.n_trials = trials
+            self.resp_large = np.concatenate(to_concat_resp_large,axis=0)            
+            self.resp_small = np.concatenate(to_concat_resp_small,axis=0)
+            self.xy_coords = np.concatenate(to_concat_xy,axis=0)
+            self.np_coords = self._get_neuron_np_coords()
+
+        else:
+            self.probe = num - 1
+            self.n_trials = self.d["T"][0][self.probe][0][0]
+            # data from all probes below
+            self.resp_large = self.d["resp_large"][0][self.probe]
+            self.resp_small = self.d["resp_small"][0][self.probe]
+            self.xy_coords = self.d["XYch"][0][self.probe]
+            self.np_coords = self._get_neuron_np_coords()
 
     def _get_neuron_np_coords(self, transform=True):
         """
@@ -62,20 +79,8 @@ class Session:
                 list of coords for the given probe
         """
         _transform = lambda x: tb.transform_coord_system(x) if transform else x
-        if self.probe is not None:
-            coords_list = self.d["XYch"][0][self.probe]
-            coords = [_transform(item) for item in coords_list]
-        else:
-            coords = {k: [] for k in self.d["NOTES"][0]}
-            keys = list(coords.keys())
-            for i in range(len(keys)):
-                coords_list = self.d["XYch"][0][i]
-                for item in coords_list:
-                    # in Session offset is given as (x,y), but remember in numpy
-                    # the vertical axis comes first (y,x)
-                    if transform:
-                        item = _transform(item)
-                    coords[keys[i]].append(item)
+        coords_list = self.xy_coords
+        coords = [_transform(item) for item in coords_list]
 
         return coords
 
@@ -89,6 +94,3 @@ class Session:
             "coords": neuron_coords,
         }
         return d
-
-    def get_rsc(self, neuron1, neuron2):
-        pass

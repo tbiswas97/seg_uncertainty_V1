@@ -261,7 +261,9 @@ class SegmentationMap:
         else:
             pass
 
-    def get_neural_data(self, Session=None, probe=None, norm=True, exists=False) -> None:
+    def get_neural_data(
+        self, Session=None, probe=None, norm=True, exists=False
+    ) -> None:
         """
         Get neural response data from Session object
 
@@ -292,7 +294,8 @@ class SegmentationMap:
             S.use_probe(probe)
             # TODO implement case where probe is not specified
         else:
-            raise ValueError("Probe must be specified")
+            self.probe = [1, 3, 4]
+            S.use_probe(probe)
 
         d = S.get_image_data(self.iid_idx)
 
@@ -300,8 +303,8 @@ class SegmentationMap:
             tb.get_coord_segment(coord, self.primary_seg_map) for coord in d["coords"]
         ]
 
-        z_norm = lambda x: (x - np.mean(x)) / (np.std(x))
-        if norm: 
+        z_norm = lambda x: (x - np.median(x))
+        if norm:
             d["resp_large"] = z_norm(d["resp_large"])
             d["resp_small"] = z_norm(d["resp_small"])
         try:
@@ -350,10 +353,12 @@ class SegmentationMap:
         df = pd.DataFrame.from_dict(dd)
         df["seg_flag"] = df["segment_1"] == df["segment_2"]
         df.insert(6, "z_norm_rsc_large", z_norm(df["rsc_large"]))
-        df.insert(7,"p_val_z_norm_rsc_large", self._mwu_df(df,stat="z_norm_rsc_large")[1])
+        df.insert(
+            7, "p_val_z_norm_rsc_large", self._mwu_df(df, stat="z_norm_rsc_large")[1]
+        )
         df.insert(10, "z_norm_rsc_small", z_norm(df["rsc_small"]))
-        df.insert(13,"p_val_delta_rsc",self._mwu_df(df,stat="delta_rsc")[1])
-        df.insert(15,"p_val_delta_rsc_pdc",self._mwu_df(df,stat="delta_rsc_pdc")[1])
+        df.insert(13, "p_val_delta_rsc", self._mwu_df(df, stat="delta_rsc")[1])
+        df.insert(15, "p_val_delta_rsc_pdc", self._mwu_df(df, stat="delta_rsc_pdc")[1])
 
         return df
 
@@ -400,13 +405,13 @@ class SegmentationMap:
 
         out = pd.concat([df1, df2]).reset_index(drop=True)
 
-        out['img_idx'] = self.iid_idx
-        out['iid'] = self.iid
+        out["img_idx"] = self.iid_idx
+        out["iid"] = self.iid
 
         return out
 
     def get_all_mwu(self, stat="delta_rsc_pdc", models=["c"], probes=[1, 3, 4]):
-        #TODO: %cleanup - maybe delete this function?
+        # TODO: %cleanup - maybe delete this function?
         """
         Calculates a p-value for each segmentation map
         """
@@ -481,16 +486,19 @@ class SegmentationMap:
         )
 
         df = self.neural_df
-        res = self._mwu_df(df,stat=stat,alternative=alternative)
+        res = self._mwu_df(df, stat=stat, alternative=alternative)
 
         return res
 
-    def _mwu_df(self,df,stat="delta_rsc_pdc", alternative='two-sided'):
-        df = df 
+    def _mwu_df(self, df, stat="delta_rsc_pdc", alternative="two-sided"):
+        df = df
         if stat == "delta_rsc" or stat == "delta_rsc_pdc":
             if "neuron1_centered" in df.columns:
                 if "neuron2_centered" in df.columns:
-                    df = df.loc[(df["neuron1_centered"] == True) | (df["neuron2_centered"] == True)]
+                    df = df.loc[
+                        (df["neuron1_centered"] == True)
+                        | (df["neuron2_centered"] == True)
+                    ]
             x = df[stat][df.seg_flag == True].dropna().values
             y = df[stat][df.seg_flag == False].dropna().values
         elif stat == "z_norm_rsc_large":
@@ -499,11 +507,10 @@ class SegmentationMap:
         try:
             res = mannwhitneyu(x, y, alternative=alternative)
         except ValueError:
-            res = (None,None)
+            res = (None, None)
             print("All neurons are in one segment")
-        
-        return res
 
+        return res
 
     def _calculate_rsc(self, neuron1, neuron2, flag=True):
         """
