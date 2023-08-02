@@ -4,6 +4,7 @@ import toolbox as tb
 import numpy as np
 import os
 
+DEFAULT_PROBES = [1,3,4]
 
 class Session:
     """
