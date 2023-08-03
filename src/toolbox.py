@@ -1361,20 +1361,26 @@ def euclidean_distance(coord1, coord2):
     """
     return math.sqrt((coord2[0] - coord1[0]) ** 2 + (coord2[1] - coord1[1]) ** 2)
 
+
 def is_centered(coord, size=(256, 256), thresh=25):
     """
     Determines whether a coordinate is in the center of an image."""
-    
-    cy = size[0]//2
-    cx = size[1]//2
 
-    _is_centered_x = lambda x: not ((x<cx-thresh) or (x>cx+thresh))
-    _is_centered_y = lambda y: not ((y<cy-thresh) or (y>cy+thresh))
+    cy = size[0] // 2
+    cx = size[1] // 2
+
+    _is_centered_x = lambda x: not ((x < cx - thresh) or (x > cx + thresh))
+    _is_centered_y = lambda y: not ((y < cy - thresh) or (y > cy + thresh))
 
     return _is_centered_x(coord[1]) and _is_centered_y(coord[0])
 
-def calculate_percent_change(x_series,y_series,c=1):
-    out = [((x-y)/(abs(x)+c)) for x,y in zip(x_series,y_series)]
-    return out 
+
+def calculate_percent_change(x_series, y_series, c=1):
+    out = [((x - y) / (abs(x) + c)) for x, y in zip(x_series, y_series)]
+    return out
 
 
+def clean_df(df):
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.dropna()
+    return df
