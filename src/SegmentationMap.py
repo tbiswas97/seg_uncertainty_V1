@@ -8,7 +8,7 @@ import seaborn as sns
 import segment as seg
 from itertools import permutations
 from Session import Session as Sess
-from Session import DEFAULT_PROBES 
+from Session import DEFAULT_PROBES
 
 
 class SegmentationMap:
@@ -134,8 +134,8 @@ class SegmentationMap:
         else:
             n_components = self.model_components
 
-        #if 3 not in n_components:
-            #n_components = np.append(n_components, 3)
+        # if 3 not in n_components:
+        # n_components = np.append(n_components, 3)
 
         n_components = n_components[n_components < max_components]
 
@@ -258,12 +258,12 @@ class SegmentationMap:
                 median_n_components = temp[median_idx]
                 self.primary_seg_map = maps["c"][median_n_components][layer]
         if self.session_loaded:
-            self.get_neural_data()
+            self.get_neural_data(full=False)
         else:
             pass
 
     def get_neural_data(
-        self, Session=None, probe=DEFAULT_PROBES, norm=True, exists=False, full=True
+        self, Session=None, probe=DEFAULT_PROBES, norm=True, exists=False, full=False
     ) -> None:
         """
         Get neural response data from Session object
@@ -323,7 +323,8 @@ class SegmentationMap:
             (df.neuron1_centered == True) | (df.neuron2_centered == True)
         ]
         self.session_loaded = True
-        if full:
+
+        if full and self.primary_seg_map is None:
             self.get_full_df()
 
     def _make_neural_df(self) -> pd.DataFrame:
@@ -340,14 +341,12 @@ class SegmentationMap:
         dd["neuron2"] = [pair[1] for pair in pairs]
         dd["neuron2_centered"] = [tb.is_centered(coords[pair[1]]) for pair in pairs]
         dd["rsc_large"] = [self.neural_d["corr_mat_large"][pair] for pair in pairs]
-        dd["cov_large"] = [self.neural_d["cov_mat_large"][pair] for pair in pairs]
         dd["rsc_small"] = [self.neural_d["corr_mat_small"][pair] for pair in pairs]
-        dd["cov_small"] = [self.neural_d["cov_mat_small"][pair] for pair in pairs]
         diff_mat = self.neural_d["corr_mat_small"] - self.neural_d["corr_mat_large"]
         dd["delta_rsc"] = [diff_mat[pair] for pair in pairs]
-        dd["delta_rsc_pdc"] = tb.calculate_percent_change(
-            dd["rsc_small"], dd["rsc_large"]
-        )
+        # dd["delta_rsc_pdc"] = tb.calculate_percent_change(
+        # dd["rsc_small"], dd["rsc_large"]
+        # )
         dd["distance"] = [
             tb.euclidean_distance(coords[pair[0]], coords[pair[1]]) for pair in pairs
         ]
@@ -368,7 +367,6 @@ class SegmentationMap:
         df["gt"] = gt
         df["model"] = model
         df["n_components"] = n_components
-        
 
         return df
 
@@ -379,7 +377,7 @@ class SegmentationMap:
         else:
             S = self.Session
             # TODO: implement default behavior for loading Session which directly loads from a directory
-        
+
         self.session_loaded = True
         models = models
         n_components = self.model_components
@@ -390,28 +388,22 @@ class SegmentationMap:
             for k in n_components:
                 for layer in layers:
                     to_concat.append(self._make_condition_df(None, model, k, layer))
+                    print(
+                        "Compiling data for model {} | k = {} | layer = {}".format(
+                            model, k, layer
+                        )
+                    )
 
         df1 = pd.concat(to_concat).reset_index(drop=True)
 
-        n_components_gts = list(self.users_d.keys())
-
-        gt_concat = []
-
-        for k in n_components_gts:
-            gt_concat.append(self._make_condition_df(True, None, k, None))
-
-        df2 = pd.concat(gt_concat).reset_index(drop=True)
-
-        out = pd.concat([df1, df2]).reset_index(drop=True)
-
-        out["img_idx"] = self.iid_idx
-        out["iid"] = self.iid
-        self.full_df = out
-        self.full_centered_df = out.loc[
-            (out.neuron1_centered == True) | (out.neuron2_centered == True)
+        df1["img_idx"] = self.iid_idx
+        df1["iid"] = self.iid
+        self.full_df = df1
+        self.full_centered_df = df1.loc[
+            (df1.neuron1_centered == True) | (df1.neuron2_centered == True)
         ]
 
-        return out
+        return df1
 
     def get_all_mwu(self, stat="delta_rsc_pdc", models=["c"], probes=[1, 3, 4]):
         # TODO: %cleanup - maybe delete this function?
