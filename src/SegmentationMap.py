@@ -356,6 +356,15 @@ class SegmentationMap:
         df["seg_flag"] = df["segment_1"] == df["segment_2"]
         df.insert(6, "fisher_rsc_large", np.arctanh(df["rsc_large"]))
         df.insert(7, "fisher_rsc_small", np.arctanh(df["rsc_small"]))
+        df.insert(
+            10, "fisher_delta_rsc", df["fisher_rsc_large"] - df["fisher_rsc_small"]
+        )
+        df.insert(
+            11,
+            "log_diff",
+            np.log(abs((df["fisher_rsc_small"] - df["fisher_rsc_large"])))
+            - np.log(abs(df["fisher_rsc_small"])),
+        )
 
         return df
 
@@ -366,11 +375,27 @@ class SegmentationMap:
         df = self.neural_df
         df["gt"] = gt
         df["model"] = model
+        df["layer"] = layer
         df["n_components"] = n_components
 
         return df
 
-    def get_full_df(self, Session=None, models=["c"]) -> pd.DataFrame:
+    def get_full_df(self, Session=None, models=["c"], out="cleaned") -> pd.DataFrame:
+        """
+        Makes a DataFrame with all conditions for the primary segmentation map.
+
+        Parameters:
+        ---------------
+
+        Session : session
+            Session class from Session.py
+        models : str
+            which models to get conditions for the primary segmentation map from
+        out : str
+            "cleaned" : returns a DataFrame centered, with no NaNs and ready to plot
+            "centered" : returns a DataFrame centered, with NaNs
+            "full" : returns full DataFrame with all values
+        """
         if Session is not None:
             S = Session
             self.Session = Session
@@ -402,8 +427,16 @@ class SegmentationMap:
         self.full_centered_df = df1.loc[
             (df1.neuron1_centered == True) | (df1.neuron2_centered == True)
         ]
+        df = self.full_centered_df
+        self.cleaned_df = tb.clean_df(df.loc[:, df.columns != "gt"])
 
-        return df1
+        if out == "cleaned":
+            df = self.cleaned_df
+        elif out == "centered":
+            df = self.full_centered_df
+        elif out == "full":
+            df = self.full_df
+        return df
 
     def get_all_mwu(self, stat="delta_rsc_pdc", models=["c"], probes=[1, 3, 4]):
         # TODO: %cleanup - maybe delete this function?
