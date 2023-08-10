@@ -5,13 +5,14 @@ from SegmentationMap import SegmentationMap as SM
 for idx,iid in enumerate(import_utils.IIDS):
     a = SM(iid)
     k_arr = np.asarray(a.k)
-    best_k = round(np.median(k_arr[k_arr<10]))
-    if len(k_arr[k_arr<10]) == 0: 
+    try:
+        best_k = round(np.median(k_arr[k_arr<10]))
+    except: 
         best_k = min(k_arr)
     print("Fitting image id: {} for {} components| idx {} out of {}".format(iid,best_k,idx,len(import_utils.IIDS)))
     a.fit_model(model="c",n_components=np.array([best_k]),max_components=20)
 
-    import_utils._pickle(a,'SegmentationMap_k345_{}_{}.pkl'.format(iid,idx))
+    import_utils._pickle(a,'SegmentationMap_kbest_{}_{}.pkl'.format(iid,idx))
 
 #idxs = [2]
 #for idx in idxs:
