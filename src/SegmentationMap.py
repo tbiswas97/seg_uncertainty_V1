@@ -85,7 +85,7 @@ class SegmentationMap:
                 d[val].append(i)
 
         self.users_d = d
-        self.model_components = np.sort(np.asarray(list(d.keys())))
+        self.model_components = np.sort(np.asarray(list(d.keys()))) #intial values, changed when fit_model is called
         self.seg_maps = {}
         self.cropped = False
         self.session_loaded = False
@@ -258,7 +258,7 @@ class SegmentationMap:
                 median_n_components = temp[median_idx]
                 self.primary_seg_map = maps["c"][median_n_components][layer]
         if self.session_loaded:
-            self.get_neural_data(full=False)
+            self.get_neural_data(probe=self.probe,full=False)
         else:
             pass
 
@@ -380,7 +380,7 @@ class SegmentationMap:
 
         return df
 
-    def get_full_df(self, Session=None, models=["c"], out="cleaned") -> pd.DataFrame:
+    def get_full_df(self, Session=None, models=["c"], probe=DEFAULT_PROBES,out="cleaned") -> pd.DataFrame:
         """
         Makes a DataFrame with all conditions for the primary segmentation map.
 
@@ -402,6 +402,9 @@ class SegmentationMap:
         else:
             S = self.Session
             # TODO: implement default behavior for loading Session which directly loads from a directory
+
+        self.probe = probe
+        S.use_probe(probe)
 
         self.session_loaded = True
         models = models
