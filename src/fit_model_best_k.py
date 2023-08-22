@@ -9,8 +9,10 @@ for idx,iid in enumerate(import_utils.IIDS):
         best_k = round(np.median(k_arr[k_arr<10]))
     except: 
         best_k = min(k_arr)
+        if best_k > 20:
+            best_k = 20
     print("Fitting image id: {} for {} components| idx {} out of {}".format(iid,best_k,idx,len(import_utils.IIDS)))
-    a.fit_model(model="c",n_components=np.array([best_k]),max_components=20)
+    a.fit_model(model="c",n_components=np.array([best_k]),max_components=21)
 
     import_utils._pickle(a,'SegmentationMap_kbest_{}_{}.pkl'.format(iid,idx))
 
