@@ -165,10 +165,16 @@ def loadmat_h5(file_name):
 
 
 def _pickle(object, filename):
+    """
+    To quickly serialize an object
+    """
     with open(filename, "wb") as f:
         pickle.dump(object, f)
 
 
 def _load(filename):
+    """
+    To quickly load a serialized object
+    """
     with open(filename, "rb") as f:
         return pickle.load(f)
