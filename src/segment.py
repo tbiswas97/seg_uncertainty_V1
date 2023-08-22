@@ -72,6 +72,7 @@ def make_image_stack(dat, n_im=None):
 # MODEL SELECTION
 def _fit_model(dat, model_type="ref", n_components=np.array([3])):
     """
+    Use to fit segmentation map to input image
     Parameters:
         dat: ND array of n_im,height,weight,channels
         model types:

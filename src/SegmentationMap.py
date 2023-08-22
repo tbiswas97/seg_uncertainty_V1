@@ -8,6 +8,7 @@ import seaborn as sns
 import segment as seg
 from itertools import permutations
 from Session import Session as Sess
+from Session import DEFAULT_PROBES
 
 
 class SegmentationMap:
@@ -84,7 +85,7 @@ class SegmentationMap:
                 d[val].append(i)
 
         self.users_d = d
-        self.model_components = np.sort(np.asarray(list(d.keys())))
+        self.model_components = np.sort(np.asarray(list(d.keys()))) #intial values, changed when fit_model is called
         self.seg_maps = {}
         self.cropped = False
         self.session_loaded = False
@@ -133,8 +134,8 @@ class SegmentationMap:
         else:
             n_components = self.model_components
 
-        if 3 not in n_components:
-            n_components = np.append(n_components, 3)
+        # if 3 not in n_components:
+        # n_components = np.append(n_components, 3)
 
         n_components = n_components[n_components < max_components]
 
@@ -257,11 +258,13 @@ class SegmentationMap:
                 median_n_components = temp[median_idx]
                 self.primary_seg_map = maps["c"][median_n_components][layer]
         if self.session_loaded:
-            self.get_neural_data(probe=self.probe)
+            self.get_neural_data(probe=self.probe,full=False)
         else:
             pass
 
-    def get_neural_data(self, Session=None, probe=None, norm=True, exists=False) -> None:
+    def get_neural_data(
+        self, Session=None, probe=DEFAULT_PROBES, norm=True, exists=False, full=False
+    ) -> None:
         """
         Get neural response data from Session object
 
@@ -292,7 +295,8 @@ class SegmentationMap:
             S.use_probe(probe)
             # TODO implement case where probe is not specified
         else:
-            raise ValueError("Probe must be specified")
+            self.probe = [1, 3, 4]
+            S.use_probe(probe)
 
         d = S.get_image_data(self.iid_idx)
 
@@ -300,8 +304,8 @@ class SegmentationMap:
             tb.get_coord_segment(coord, self.primary_seg_map) for coord in d["coords"]
         ]
 
-        z_norm = lambda x: (x - np.mean(x)) / (np.std(x))
-        if norm: 
+        z_norm = lambda x: (x - np.median(x))
+        if norm:
             d["resp_large"] = z_norm(d["resp_large"])
             d["resp_small"] = z_norm(d["resp_small"])
         try:
@@ -320,6 +324,9 @@ class SegmentationMap:
         ]
         self.session_loaded = True
 
+        if full and self.primary_seg_map is None:
+            self.get_full_df()
+
     def _make_neural_df(self) -> pd.DataFrame:
         coords = self.neural_d["coords"]
         total_neurons = len(coords)
@@ -334,14 +341,12 @@ class SegmentationMap:
         dd["neuron2"] = [pair[1] for pair in pairs]
         dd["neuron2_centered"] = [tb.is_centered(coords[pair[1]]) for pair in pairs]
         dd["rsc_large"] = [self.neural_d["corr_mat_large"][pair] for pair in pairs]
-        dd["cov_large"] = [self.neural_d["cov_mat_large"][pair] for pair in pairs]
         dd["rsc_small"] = [self.neural_d["corr_mat_small"][pair] for pair in pairs]
-        dd["cov_small"] = [self.neural_d["cov_mat_small"][pair] for pair in pairs]
         diff_mat = self.neural_d["corr_mat_small"] - self.neural_d["corr_mat_large"]
         dd["delta_rsc"] = [diff_mat[pair] for pair in pairs]
-        dd["delta_rsc_pdc"] = tb.calculate_percent_change(
-            dd["rsc_small"], dd["rsc_large"]
-        )
+        # dd["delta_rsc_pdc"] = tb.calculate_percent_change(
+        # dd["rsc_small"], dd["rsc_large"]
+        # )
         dd["distance"] = [
             tb.euclidean_distance(coords[pair[0]], coords[pair[1]]) for pair in pairs
         ]
@@ -349,9 +354,17 @@ class SegmentationMap:
         dd["segment_2"] = [self.neural_d["segments"][pair[1]] for pair in pairs]
         df = pd.DataFrame.from_dict(dd)
         df["seg_flag"] = df["segment_1"] == df["segment_2"]
-        df.insert(6,"fisher_rsc_large",np.arctanh(df["rsc_large"]))
-        df.insert(7,"fisher_rsc_small",np.arctanh(df["rsc_small"]))
-        return df
+        df.insert(6, "fisher_rsc_large", np.arctanh(df["rsc_large"]))
+        df.insert(7, "fisher_rsc_small", np.arctanh(df["rsc_small"]))
+        df.insert(
+            10, "fisher_delta_rsc", df["fisher_rsc_large"] - df["fisher_rsc_small"]
+        )
+        df.insert(
+            11,
+            "log_diff",
+            np.log(abs((df["fisher_rsc_small"] - df["fisher_rsc_large"])))
+            - np.log(abs(df["fisher_rsc_small"])),
+        )
 
     def make_plotting_df(self,param="delta"):
         if param == "delta":
@@ -365,56 +378,81 @@ class SegmentationMap:
         
         return df
 
-    def _make_condition_df(self, gt, model, n_components, layer, probe) -> pd.DataFrame:
-        self.probe = probe
+    def _make_condition_df(self, gt, model, n_components, layer) -> pd.DataFrame:
         self.set_primary_seg_map(
             gt=gt, model=model, n_components=n_components, layer=layer
         )
         df = self.neural_df
         df["gt"] = gt
         df["model"] = model
-        df["n_components"] = n_components
         df["layer"] = layer
-        df["probe"] = probe
+        df["n_components"] = n_components
 
         return df
 
-    def get_full_df(self, models=["c"], probes=[1, 3, 4]) -> pd.DataFrame:
+    def get_full_df(self, Session=None, models=["c"], probe=DEFAULT_PROBES,out="cleaned") -> pd.DataFrame:
+        """
+        Makes a DataFrame with all conditions for the primary segmentation map.
+
+        Parameters:
+        ---------------
+
+        Session : session
+            Session class from Session.py
+        models : str
+            which models to get conditions for the primary segmentation map from
+        out : str
+            "cleaned" : returns a DataFrame centered, with no NaNs and ready to plot
+            "centered" : returns a DataFrame centered, with NaNs
+            "full" : returns full DataFrame with all values
+        """
+        if Session is not None:
+            S = Session
+            self.Session = Session
+        else:
+            S = self.Session
+            # TODO: implement default behavior for loading Session which directly loads from a directory
+
+        self.probe = probe
+        S.use_probe(probe)
+
+        self.session_loaded = True
         models = models
         n_components = self.model_components
         layers = range(4)
-        probes = probes
 
         to_concat = []
-        for probe in probes:
-            for model in models:
-                for k in n_components:
-                    for layer in layers:
-                        to_concat.append(
-                            self._make_condition_df(None, model, k, layer, probe)
+        for model in models:
+            for k in n_components:
+                for layer in layers:
+                    to_concat.append(self._make_condition_df(None, model, k, layer))
+                    print(
+                        "Compiling data for model {} | k = {} | layer = {}".format(
+                            model, k, layer
                         )
+                    )
 
         df1 = pd.concat(to_concat).reset_index(drop=True)
 
-        n_components_gts = list(self.users_d.keys())
+        df1["img_idx"] = self.iid_idx
+        df1["iid"] = self.iid
+        self.full_df = df1
+        self.full_centered_df = df1.loc[
+            (df1.neuron1_centered == True) | (df1.neuron2_centered == True)
+        ]
+        df = self.full_centered_df
+        self.cleaned_df = tb.clean_df(df.loc[:, df.columns != "gt"])
 
-        gt_concat = []
-
-        for probe in probes:
-            for k in n_components_gts:
-                gt_concat.append(self._make_condition_df(True, None, k, None, probe))
-
-        df2 = pd.concat(gt_concat).reset_index(drop=True)
-
-        out = pd.concat([df1, df2]).reset_index(drop=True)
-
-        out['img_idx'] = self.iid_idx
-        out['iid'] = self.iid
-
-        return out
+        if out == "cleaned":
+            df = self.cleaned_df
+        elif out == "centered":
+            df = self.full_centered_df
+        elif out == "full":
+            df = self.full_df
+        return df
 
     def get_all_mwu(self, stat="delta_rsc_pdc", models=["c"], probes=[1, 3, 4]):
-        #TODO: %cleanup - maybe delete this function?
+        # TODO: %cleanup - maybe delete this function?
         """
         Calculates a p-value for each segmentation map
         """
@@ -489,16 +527,19 @@ class SegmentationMap:
         )
 
         df = self.neural_df
-        res = self._mwu_df(df,stat=stat,alternative=alternative)
+        res = self._mwu_df(df, stat=stat, alternative=alternative)
 
         return res
 
-    def _mwu_df(self,df,stat="delta_rsc_pdc", alternative='two-sided'):
-        df = df 
+    def _mwu_df(self, df, stat="delta_rsc_pdc", alternative="two-sided"):
+        df = df
         if stat == "delta_rsc" or stat == "delta_rsc_pdc":
             if "neuron1_centered" in df.columns:
                 if "neuron2_centered" in df.columns:
-                    df = df.loc[(df["neuron1_centered"] == True) | (df["neuron2_centered"] == True)]
+                    df = df.loc[
+                        (df["neuron1_centered"] == True)
+                        | (df["neuron2_centered"] == True)
+                    ]
             x = df[stat][df.seg_flag == True].dropna().values
             y = df[stat][df.seg_flag == False].dropna().values
         elif stat == "z_norm_rsc_large":
@@ -507,11 +548,10 @@ class SegmentationMap:
         try:
             res = mannwhitneyu(x, y, alternative=alternative)
         except ValueError:
-            res = (None,None)
+            res = (None, None)
             print("All neurons are in one segment")
-        
-        return res
 
+        return res
 
     def _calculate_rsc(self, neuron1, neuron2, flag=True):
         """
