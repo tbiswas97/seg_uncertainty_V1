@@ -6,22 +6,37 @@ import glob
 import h5py
 import pickle
 
-# iids of images associated with experiment
-EXP_NAME = "EXP150_NatImages_NeuroPixels"
-EXP_NAMES_PATH = os.path.abspath(os.path.join(os.path.dirname(os.getcwd()), EXP_NAME))
-IID_MAT_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Names.mat")
-)
-SESSION_MAT_PATH = os.path.abspath(
-    os.path.join(
-        os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Sessions.mat"
-    )
-)
-temp = np.concatenate(loadmat(IID_MAT_PATH)["IMAGENAME"]).tolist()
-IIDS = [elem[0] for elem in temp]
-JPGS = [iid + ".jpg" for iid in IIDS]
-SEGS = [iid + ".seg" for iid in IIDS]  # BSDS500 uses .mat
+# CHANGE EXP NAME HERE
+# EXP_NAME = "EXP150_NatImages_NeuroPixels"
+EXP_NAME = "Sessions_NaturalEnsemble_136"
 
+# iids of images associated with experiment
+if EXP_NAME == "EXP150_NatImages_NeuroPixels":
+    IID_MAT_PATH = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Names.mat"
+        )
+    )
+    SESSION_MAT_PATH = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Sessions.mat"
+        )
+    )
+    temp = np.concatenate(loadmat(IID_MAT_PATH)["IMAGENAME"]).tolist()
+    IIDS = [elem[0] for elem in temp]
+    JPGS = [iid + ".jpg" for iid in IIDS]
+    SEGS = [iid + ".seg" for iid in IIDS]  # BSDS500 uses .mat
+
+elif EXP_NAME == "Sessions_NaturalEnsemble_136":
+    SESSION_MAT_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + ".mat")
+    )
+    SESSION_IMS = os.path.abspath(
+        os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + "_images.pkl")
+    )
+    
+
+# Paths to BSD data
 JPG_PATH = os.path.abspath(
     os.path.join(
         os.path.dirname(os.getcwd()),
