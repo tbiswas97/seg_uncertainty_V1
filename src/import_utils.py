@@ -35,6 +35,20 @@ elif EXP_NAME == "Sessions_NaturalEnsemble_136":
         os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + "_images.pkl")
     )
     
+def get_SESSION_MAT_PATH(EXP_NAME):
+    if EXP_NAME == "EXP150_NatImages_NeuroPixels":
+        SESSION_MAT_PATH = os.path.abspath(
+            os.path.join(
+                os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Sessions.mat"
+            )
+        )
+    elif EXP_NAME == "Sessions_NaturalEnsemble_136":
+        SESSION_MAT_PATH = os.path.abspath(
+            os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + ".mat")
+        )
+
+    return SESSION_MAT_PATH
+
 
 # Paths to BSD data
 JPG_PATH = os.path.abspath(
