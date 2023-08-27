@@ -110,7 +110,7 @@ class SegmentationMap:
             assert type(_in) == tuple
             self.iid = str(_in[0])
             self.iid_idx = _in[0]
-            self.im = _in[1]
+            self.im = import_utils.norm_im(_in[1])
             self.seg_maps = {}
             self.cropped = False 
             self.session_loaded = False 
@@ -167,6 +167,7 @@ class SegmentationMap:
         n_components = n_components[n_components < max_components]
 
         self.model_components = n_components
+
         # run model 'a'
         if "a" in model:
             self.model_res["a"] = seg._fit_model(
