@@ -34,8 +34,14 @@ elif EXP_NAME == "Sessions_NaturalEnsemble_136":
     SESSION_IMS = os.path.abspath(
         os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + "_images.pkl")
     )
-    
+
+
 def get_SESSION_MAT_PATH(EXP_NAME):
+    """
+    Use to extract Session information given EXP_NAME input.
+    This is because different experiments are formatted differently. 
+    Useful if you need change variables without re-importing
+    """
     if EXP_NAME == "EXP150_NatImages_NeuroPixels":
         SESSION_MAT_PATH = os.path.abspath(
             os.path.join(
@@ -86,6 +92,20 @@ def read_file_lines(filename):
 
 
 def norm_im(arr, check_even=True):
+    """
+    Normalizes image input into segmentation model
+    """
+    #fit model function can only handle 3-slice color arrays
+    #so we make input grayscale images as a triplicate of the original
+
+    ndim = arr.ndim
+    if ndim != 3:
+        if ndim == 2:
+            a = np.expand_dims(arr,2)
+            arr = np.repeat(a,3,2)
+        else:
+            raise("Check dimensions of input image")
+
     ny, nx = arr.shape[0:2]
 
     if check_even:
@@ -101,12 +121,14 @@ def norm_im(arr, check_even=True):
 
     return arr
 
+
 def import_jpg(filename, check_even=True):
     img = Image.open(filename)
     arr = np.array(img)
     arr = norm_im(arr, check_even)
 
     return arr
+
 
 def load_bsd_mat(seg_path, check_even=True):
     gt_path = seg_path
