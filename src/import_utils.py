@@ -85,9 +85,7 @@ def read_file_lines(filename):
     return lines
 
 
-def import_jpg(filename, check_even=True):
-    img = Image.open(filename)
-    arr = np.array(img)
+def norm_im(arr, check_even=True):
     ny, nx = arr.shape[0:2]
 
     if check_even:
@@ -103,6 +101,12 @@ def import_jpg(filename, check_even=True):
 
     return arr
 
+def import_jpg(filename, check_even=True):
+    img = Image.open(filename)
+    arr = np.array(img)
+    arr = norm_im(arr, check_even)
+
+    return arr
 
 def load_bsd_mat(seg_path, check_even=True):
     gt_path = seg_path
