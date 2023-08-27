@@ -55,41 +55,68 @@ class SegmentationMap:
 
     """
 
-    def __init__(self, iid):
-        self.iid = iid  # image id in BSDS500
-        self.iid_idx = import_utils.IIDS.index(self.iid)
-        self.jpg_path = os.path.abspath(
-            os.path.join(import_utils.JPG_PATH, iid + ".jpg")
-        )
-        self.seg_path = os.path.abspath(
-            os.path.join(import_utils.SEG_PATH, iid + ".mat")
-        )
-        self.im = import_utils.import_jpg(self.jpg_path)
-        self.gts = import_utils.load_bsd_mat(self.seg_path)
-        self.model_res = {}
+    def __init__(self, _in, mode="BSD"):
+        """
+        Initializes SegmentationMap class that interfaces with Session data
 
-        for gt in self.gts:
-            assert self.im.shape[0:2] == self.gts[0].shape
+        Parameters:
+        ------------
 
-        self.k = [
-            len(np.unique(gt)) for gt in self.gts
-        ]  # number of segments across users
+        _in : str or tup
+        mode : str
+            'array' : if mode is 'array' _in should be a tup of
+                (array_idx, array)
+            'BSD' : if mode is 'BSD' _in should be a str corresponding to the BSD image ID
+        """
+        if mode == "BSD":
+            assert type(_in) == str
+            self.iid = _in  # image id in BSDS500
+            self.iid_idx = import_utils.IIDS.index(self.iid)
+            self.jpg_path = os.path.abspath(
+                os.path.join(import_utils.JPG_PATH, self.iid + ".jpg")
+            )
+            self.seg_path = os.path.abspath(
+                os.path.join(import_utils.SEG_PATH, self.iid + ".mat")
+            )
+            self.im = import_utils.import_jpg(self.jpg_path)
+            self.gts = import_utils.load_bsd_mat(self.seg_path)
+            self.model_res = {}
 
-        d = {}
+            for gt in self.gts:
+                assert self.im.shape[0:2] == self.gts[0].shape
 
-        for i, val in enumerate(self.k):
-            if val not in d.keys():
-                d[val] = []
-                d[val].append(i)
-            else:
-                d[val].append(i)
+            self.k = [
+                len(np.unique(gt)) for gt in self.gts
+            ]  # number of segments across users
 
-        self.users_d = d
-        self.model_components = np.sort(np.asarray(list(d.keys()))) #intial values, changed when fit_model is called
-        self.seg_maps = {}
-        self.cropped = False
-        self.session_loaded = False
-        self.primary_seg_map = None
+            d = {}
+
+            for i, val in enumerate(self.k):
+                if val not in d.keys():
+                    d[val] = []
+                    d[val].append(i)
+                else:
+                    d[val].append(i)
+
+            self.users_d = d
+            self.model_components = np.sort(
+                np.asarray(list(d.keys()))
+            )  # intial values, changed when fit_model is called
+            self.seg_maps = {}
+            self.cropped = False
+            self.session_loaded = False
+            self.primary_seg_map = None
+        if mode == "array":
+            assert type(_in) == tuple
+            self.iid = str(_in[0])
+            self.iid_idx = _in[0]
+            self.im = _in[1]
+            self.seg_maps = {}
+            self.cropped = False 
+            self.session_loaded = False 
+            self.primary_seg_map = None
+        else:
+            raise ("Invalid initiation")
 
     def __repr__(self) -> str:
         a = "IID:{}\n".format(self.iid)
@@ -258,7 +285,7 @@ class SegmentationMap:
                 median_n_components = temp[median_idx]
                 self.primary_seg_map = maps["c"][median_n_components][layer]
         if self.session_loaded:
-            self.get_neural_data(probe=self.probe,full=False)
+            self.get_neural_data(probe=self.probe, full=False)
         else:
             pass
 
@@ -366,7 +393,7 @@ class SegmentationMap:
             - np.log(abs(df["fisher_rsc_small"])),
         )
 
-    def make_plotting_df(self,param="delta"):
+    def make_plotting_df(self, param="delta"):
         if param == "delta":
             df = self.centered_df
             df = df.replace([np.inf, -np.inf], np.nan)
@@ -375,7 +402,7 @@ class SegmentationMap:
             df = self.neural_df
             df = df.replace([np.inf, -np.inf], np.nan)
             df = df.dropna()
-        
+
         return df
 
     def _make_condition_df(self, gt, model, n_components, layer) -> pd.DataFrame:
@@ -390,7 +417,9 @@ class SegmentationMap:
 
         return df
 
-    def get_full_df(self, Session=None, models=["c"], probe=DEFAULT_PROBES,out="cleaned") -> pd.DataFrame:
+    def get_full_df(
+        self, Session=None, models=["c"], probe=DEFAULT_PROBES, out="cleaned"
+    ) -> pd.DataFrame:
         """
         Makes a DataFrame with all conditions for the primary segmentation map.
 
