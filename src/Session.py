@@ -4,14 +4,14 @@ import toolbox as tb
 import numpy as np
 import os
 
-DEFAULT_PROBES = [1,3,4]
+DEFAULT_PROBES = None
 
 class Session:
     """
     Initiate from session .mat file
     """
 
-    def __init__(self, mat, exists=True):
+    def __init__(self, mat,type='utah'):
         """
         Parameters:
         -----------
@@ -19,47 +19,54 @@ class Session:
             path to session.mat file
         probe : int
             if not None, use the given probe
-        exists : bool
-            if True, load from session.pkl file if it exists
+        type : str
+            "utah" : if session has Utah array recordings 
+            "neuropixel" : if session has neuropixel recordings
         """
-        if exists:
-            cd = os.path.abspath(os.path.dirname(os.getcwd()))
-            path = os.path.join(cd, "in", "Session.pkl")
-            if os.path.isfile(path):
-                temp = import_utils._load(path)
-        else:
-            temp = import_utils.loadmat_h5(mat)
+        temp = import_utils.loadmat_h5(mat)
         # probes are 1-indexed NOT 0-indexed so we must subtract 1
         self.d = temp["Session"]
         self.fields = list(self.d.keys())
+        if type == "utah":
+            self.use_probe(num=None)
+        elif type == "neuropixel":
+            print("use use_probe function to select one or multiple probes")
 
     def use_probe(self, num=1) -> None:
-        if type(num) is list:
-            probe_nums = [val-1 for val in num ]
-            trials = []
-            to_concat_resp_large = []
-            to_concat_resp_small = []
-            to_concat_xy = []
-            
-            for probe in probe_nums:
-                trials.append(self.d["T"][0][probe][0][0])
-                to_concat_resp_large.append(self.d["resp_large"][0][probe])
-                to_concat_resp_small.append(self.d["resp_small"][0][probe])
-                to_concat_xy.append(self.d["XYch"][0][probe])
-            self.n_trials = trials
-            self.resp_large = np.concatenate(to_concat_resp_large,axis=0)            
-            self.resp_small = np.concatenate(to_concat_resp_small,axis=0)
-            self.xy_coords = np.concatenate(to_concat_xy,axis=0)
+        if num is not None:
+            if type(num) is list:
+                probe_nums = [val-1 for val in num ]
+                trials = []
+                to_concat_resp_large = []
+                to_concat_resp_small = []
+                to_concat_xy = []
+                
+                for probe in probe_nums:
+                    trials.append(self.d["T"][0][probe][0][0])
+                    to_concat_resp_large.append(self.d["resp_large"][0][probe])
+                    to_concat_resp_small.append(self.d["resp_small"][0][probe])
+                    to_concat_xy.append(self.d["XYch"][0][probe])
+                self.n_trials = trials
+                self.resp_large = np.concatenate(to_concat_resp_large,axis=0)            
+                self.resp_small = np.concatenate(to_concat_resp_small,axis=0)
+                self.xy_coords = np.concatenate(to_concat_xy,axis=0)
+                self.np_coords = self._get_neuron_np_coords()
+            else:
+                self.probe = num - 1
+                self.n_trials = self.d["T"][0][self.probe][0][0]
+                # data from all probes below
+                self.resp_large = self.d["resp_large"][0][self.probe]
+                self.resp_small = self.d["resp_small"][0][self.probe]
+                self.xy_coords = self.d["XYch"][0][self.probe]
+                self.np_coords = self._get_neuron_np_coords()
+        else: #for utah array data 
+            self.n_trials = self.d["T"][0][0]
+            self.resp_large = self.d["resp_large"]
+            self.resp_small = self.d["resp_small"]
+            self.xy_coords = self.d["XYch"]
+            self.n_neurons = len(self.xy_coords)
             self.np_coords = self._get_neuron_np_coords()
 
-        else:
-            self.probe = num - 1
-            self.n_trials = self.d["T"][0][self.probe][0][0]
-            # data from all probes below
-            self.resp_large = self.d["resp_large"][0][self.probe]
-            self.resp_small = self.d["resp_small"][0][self.probe]
-            self.xy_coords = self.d["XYch"][0][self.probe]
-            self.np_coords = self._get_neuron_np_coords()
 
     def _get_neuron_np_coords(self, transform=True):
         """
