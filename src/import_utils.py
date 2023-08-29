@@ -27,6 +27,14 @@ if EXP_NAME == "EXP150_NatImages_NeuroPixels":
     JPGS = [iid + ".jpg" for iid in IIDS]
     SEGS = [iid + ".seg" for iid in IIDS]  # BSDS500 uses .mat
 
+    d = {
+        "IID_MAT_PATH": IID_MAT_PATH,
+        "SESSION_MAT_PATH": SESSION_MAT_PATH,
+        "IIDS": IIDS,
+        "JPGS": JPGS,
+        "SEGS": SEGS,
+    }
+
 elif EXP_NAME == "Sessions_NaturalEnsemble_136":
     SESSION_MAT_PATH = os.path.abspath(
         os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + ".mat")
@@ -34,26 +42,56 @@ elif EXP_NAME == "Sessions_NaturalEnsemble_136":
     SESSION_IMS = os.path.abspath(
         os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + "_images.pkl")
     )
+    d = {
+        "SESSION_MAT_PATH": SESSION_MAT_PATH,
+        "SESSION_IMS" : SESSION_IMS
+    }
 
 
-def get_SESSION_MAT_PATH(EXP_NAME):
+
+
+def get_EXP_INFO(EXP_NAME):
     """
     Use to extract Session information given EXP_NAME input.
-    This is because different experiments are formatted differently. 
+    This is because different experiments are formatted differently.
     Useful if you need change variables without re-importing
     """
     if EXP_NAME == "EXP150_NatImages_NeuroPixels":
+        IID_MAT_PATH = os.path.abspath(
+            os.path.join(
+                os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Names.mat"
+            )
+        )
         SESSION_MAT_PATH = os.path.abspath(
             os.path.join(
                 os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Sessions.mat"
             )
         )
+        temp = np.concatenate(loadmat(IID_MAT_PATH)["IMAGENAME"]).tolist()
+        IIDS = [elem[0] for elem in temp]
+        JPGS = [iid + ".jpg" for iid in IIDS]
+        SEGS = [iid + ".seg" for iid in IIDS]  # BSDS500 uses .mat
+
+        d = {
+            "IID_MAT_PATH": IID_MAT_PATH,
+            "SESSION_MAT_PATH": SESSION_MAT_PATH,
+            "IIDS": IIDS,
+            "JPGS": JPGS,
+            "SEGS": SEGS,
+        }
     elif EXP_NAME == "Sessions_NaturalEnsemble_136":
         SESSION_MAT_PATH = os.path.abspath(
             os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + ".mat")
         )
+        SESSION_IMS = os.path.abspath(
+            os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + "_images.pkl")
+        )
+        d = {
+            "SESSION_MAT_PATH": SESSION_MAT_PATH,
+            "SESSION_IMS" : SESSION_IMS
+        }
 
-    return SESSION_MAT_PATH
+    return d
 
 
 # Paths to BSD data
@@ -95,16 +133,16 @@ def norm_im(arr, check_even=True):
     """
     Normalizes image input into segmentation model
     """
-    #fit model function can only handle 3-slice color arrays
-    #so we make input grayscale images as a triplicate of the original
+    # fit model function can only handle 3-slice color arrays
+    # so we make input grayscale images as a triplicate of the original
 
     ndim = arr.ndim
     if ndim != 3:
         if ndim == 2:
-            a = np.expand_dims(arr,2)
-            arr = np.repeat(a,3,2)
+            a = np.expand_dims(arr, 2)
+            arr = np.repeat(a, 3, 2)
         else:
-            raise("Check dimensions of input image")
+            raise ("Check dimensions of input image")
 
     ny, nx = arr.shape[0:2]
 
