@@ -71,7 +71,10 @@ class SegmentationMap:
         if mode == "BSD":
             assert type(_in) == str
             self.iid = _in  # image id in BSDS500
-            self.iid_idx = import_utils.IIDS.index(self.iid)
+            try:
+                self.iid_idx = import_utils.IIDS.index(self.iid)
+            except:
+                self.iid_idx = 0
             self.jpg_path = os.path.abspath(
                 os.path.join(import_utils.JPG_PATH, self.iid + ".jpg")
             )
@@ -106,17 +109,19 @@ class SegmentationMap:
             self.cropped = False
             self.session_loaded = False
             self.primary_seg_map = None
-        if mode == "array":
+        elif mode == "array":
             assert type(_in) == tuple
             self.iid = str(_in[0])
+            self.k = None
             self.iid_idx = _in[0]
             self.im = import_utils.norm_im(_in[1])
+            self.model_res = {}
             self.seg_maps = {}
-            self.cropped = False 
-            self.session_loaded = False 
+            self.cropped = False
+            self.session_loaded = False
             self.primary_seg_map = None
         else:
-            raise ("Invalid initiation")
+            print("Invalid initiation")
 
     def __repr__(self) -> str:
         a = "IID:{}\n".format(self.iid)
@@ -318,13 +323,8 @@ class SegmentationMap:
             S = self.Session
             # TODO: implement default behavior for loading Session which directly loads from a directory
 
-        if probe is not None:
-            self.probe = probe
-            S.use_probe(probe)
-            # TODO implement case where probe is not specified
-        else:
-            self.probe = [1, 3, 4]
-            S.use_probe(probe)
+        self.probe = probe
+        S.use_probe(probe)
 
         d = S.get_image_data(self.iid_idx)
 
@@ -360,14 +360,15 @@ class SegmentationMap:
         total_neurons = len(coords)
         pairs = list(permutations(range(total_neurons), 2))
 
-        z_norm = lambda x: (x - np.mean(x)) / (np.std(x))
+        # set size parameter for is_centered function (defined in toolbox.py)
+        is_centered = lambda x: tb.is_centered(x,size=self.im.shape)
 
         dd = {}
         dd["pairs"] = pairs
         dd["neuron1"] = [pair[0] for pair in pairs]
-        dd["neuron1_centered"] = [tb.is_centered(coords[pair[0]]) for pair in pairs]
+        dd["neuron1_centered"] = [is_centered(coords[pair[0]]) for pair in pairs]
         dd["neuron2"] = [pair[1] for pair in pairs]
-        dd["neuron2_centered"] = [tb.is_centered(coords[pair[1]]) for pair in pairs]
+        dd["neuron2_centered"] = [is_centered(coords[pair[1]]) for pair in pairs]
         dd["rsc_large"] = [self.neural_d["corr_mat_large"][pair] for pair in pairs]
         dd["rsc_small"] = [self.neural_d["corr_mat_small"][pair] for pair in pairs]
         diff_mat = self.neural_d["corr_mat_small"] - self.neural_d["corr_mat_large"]
@@ -389,10 +390,12 @@ class SegmentationMap:
         )
         df.insert(
             11,
-            "log_diff",
-            np.log(abs((df["fisher_rsc_small"] - df["fisher_rsc_large"])))
-            - np.log(abs(df["fisher_rsc_small"])),
+            "fisher_delta_rsc_index",
+            0.5*((df["fisher_rsc_small"] - df["fisher_rsc_large"])
+            / (df["fisher_rsc_small"] + df["fisher_rsc_large"])),
         )
+
+        return df
 
     def make_plotting_df(self, param="delta"):
         if param == "delta":
@@ -467,19 +470,14 @@ class SegmentationMap:
         df1["img_idx"] = self.iid_idx
         df1["iid"] = self.iid
         self.full_df = df1
-        self.full_centered_df = df1.loc[
+        self.centered_df = df1.loc[
             (df1.neuron1_centered == True) | (df1.neuron2_centered == True)
         ]
-        df = self.full_centered_df
-        self.cleaned_df = tb.clean_df(df.loc[:, df.columns != "gt"])
+        self.mixed_df = df1.loc[
+            (df1.neuron1_centered == True) ^ (df1.neuron2_centered == True)
+        ]
 
-        if out == "cleaned":
-            df = self.cleaned_df
-        elif out == "centered":
-            df = self.full_centered_df
-        elif out == "full":
-            df = self.full_df
-        return df
+        return df1
 
     def get_all_mwu(self, stat="delta_rsc_pdc", models=["c"], probes=[1, 3, 4]):
         # TODO: %cleanup - maybe delete this function?
