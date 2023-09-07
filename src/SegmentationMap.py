@@ -361,7 +361,7 @@ class SegmentationMap:
         pairs = list(permutations(range(total_neurons), 2))
 
         # set size parameter for is_centered function (defined in toolbox.py)
-        is_centered = lambda x: tb.is_centered(x,size=self.im.shape)
+        is_centered = lambda x: tb.is_centered(x, size=self.im.shape)
 
         dd = {}
         dd["pairs"] = pairs
@@ -391,8 +391,11 @@ class SegmentationMap:
         df.insert(
             11,
             "fisher_delta_rsc_index",
-            0.5*((df["fisher_rsc_small"] - df["fisher_rsc_large"])
-            / (df["fisher_rsc_small"] + df["fisher_rsc_large"])),
+            0.5
+            * (
+                (df["fisher_rsc_small"] - df["fisher_rsc_large"])
+                / (abs(df["fisher_rsc_small"]) + abs(df["fisher_rsc_large"])),
+            ),
         )
 
         return df
