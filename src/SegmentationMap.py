@@ -6,7 +6,7 @@ from scipy.stats import mannwhitneyu
 import pandas as pd
 import seaborn as sns
 import segment as seg
-from itertools import permutations
+from itertools import combinations
 from Session import Session as Sess
 from Session import DEFAULT_PROBES
 
@@ -296,7 +296,7 @@ class SegmentationMap:
             pass
 
     def get_neural_data(
-        self, Session=None, probe=DEFAULT_PROBES, norm=True, exists=False, full=False
+        self, Session=None, probe=DEFAULT_PROBES, exists=False, full=False
     ) -> None:
         """
         Get neural response data from Session object
@@ -332,10 +332,6 @@ class SegmentationMap:
             tb.get_coord_segment(coord, self.primary_seg_map) for coord in d["coords"]
         ]
 
-        z_norm = lambda x: (x - np.median(x))
-        if norm:
-            d["resp_large"] = z_norm(d["resp_large"])
-            d["resp_small"] = z_norm(d["resp_small"])
         try:
             d["corr_mat_large"] = np.corrcoef(d["resp_large"])
             d["cov_mat_large"] = np.cov(d["resp_large"])
@@ -358,7 +354,7 @@ class SegmentationMap:
     def _make_neural_df(self) -> pd.DataFrame:
         coords = self.neural_d["coords"]
         total_neurons = len(coords)
-        pairs = list(permutations(range(total_neurons), 2))
+        pairs = list(combinations(range(total_neurons), 2))
 
         # set size parameter for is_centered function (defined in toolbox.py)
         is_centered = lambda x: tb.is_centered(x, size=self.im.shape)
@@ -373,9 +369,6 @@ class SegmentationMap:
         dd["rsc_small"] = [self.neural_d["corr_mat_small"][pair] for pair in pairs]
         diff_mat = self.neural_d["corr_mat_small"] - self.neural_d["corr_mat_large"]
         dd["delta_rsc"] = [diff_mat[pair] for pair in pairs]
-        # dd["delta_rsc_pdc"] = tb.calculate_percent_change(
-        # dd["rsc_small"], dd["rsc_large"]
-        # )
         dd["distance"] = [
             tb.euclidean_distance(coords[pair[0]], coords[pair[1]]) for pair in pairs
         ]
@@ -386,7 +379,7 @@ class SegmentationMap:
         df.insert(6, "fisher_rsc_large", np.arctanh(df["rsc_large"]))
         df.insert(7, "fisher_rsc_small", np.arctanh(df["rsc_small"]))
         df.insert(
-            10, "fisher_delta_rsc", df["fisher_rsc_large"] - df["fisher_rsc_small"]
+            10, "fisher_delta_rsc", df["fisher_rsc_small"] - df["fisher_rsc_large"]
         )
         df.insert(
             11,
@@ -394,7 +387,7 @@ class SegmentationMap:
             0.5
             * (
                 (df["fisher_rsc_small"] - df["fisher_rsc_large"])
-                / (abs(df["fisher_rsc_small"]) + abs(df["fisher_rsc_large"])),
+                / (abs(df["fisher_rsc_small"]) + abs(df["fisher_rsc_large"]))
             ),
         )
 
