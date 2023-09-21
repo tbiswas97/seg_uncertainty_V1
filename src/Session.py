@@ -4,7 +4,15 @@ import toolbox as tb
 import numpy as np
 import os
 
-DEFAULT_PROBES = None
+# best probes for Neuropixel data
+DEFAULT_PROBES = [1, 3, 4]
+# time stamps for stimulation and blanking
+STIM_WINDOW = (5, 105)
+# blk window uses the last 50 ms of resp_train_blk
+BLK_WINDOW = (106, 155)
+
+BLKDUR = BLK_WINDOW[1] - BLK_WINDOW[0]
+STIMDUR = STIM_WINDOW[1] - STIM_WINDOW[0]
 
 
 class Session:
@@ -12,7 +20,7 @@ class Session:
     Initiate from session .mat file
     """
 
-    def __init__(self, mat, type="utah"):
+    def __init__(self, mat, type="utah", neuron_exclusion=True):
         """
         Parameters:
         -----------
@@ -23,6 +31,8 @@ class Session:
         type : str
             "utah" : if session has Utah array recordings
             "neuropixel" : if session has neuropixel recordings
+        neuron_exclusion : bool
+            Default True. Excludes neurons based on criteria defined in self.neuron_exclusion()
         """
         temp = import_utils.loadmat_h5(mat)
         self.__dict__ = temp["Session"]
@@ -31,8 +41,11 @@ class Session:
         # probes are 1-indexed NOT 0-indexed so we must subtract 1
         if type == "utah":
             self.use_probe(num=None)
+            if neuron_exclusion:
+                self.neuron_exclusion()
         elif type == "neuropixel":
             print("use use_probe function to select one or multiple probes")
+            self.use_probe(num=DEFAULT_PROBES)
 
     def use_probe(self, num=1) -> None:
         if num is not None:
@@ -69,6 +82,31 @@ class Session:
             self.n_neurons = len(self.xy_coords)
             self.np_coords = self._get_neuron_np_coords()
 
+    def get_center_neurons(self, thresh=25, d=10):
+        """
+        Splits neurons into three pools: center, off-center, and excised.
+
+        Parameters:
+        -----------
+        thresh : int
+            Neurons within this radius (in pixels) are considered to be "centered"
+        d : int
+            Neurons between this radius and thresh (in pixels) are considered on the border and are excised.
+            Neurons outside of the radius thresh + d are considered off-center 
+        
+        Returns:
+        -----------
+        self.idx_d : dict
+            contains the indexes of the neurons that are 'center','off_center',and 'excised'
+        """
+        out = tb.is_centered_xy(self.XYch, thresh=thresh, d=d)
+
+        centered_neurons = np.where(np.asarray(out) == 1)[0]
+        off_center_neurons = np.where(np.asarray(out) == 2)[0]
+        excised_neurons = np.where(np.asarray(out) == 0)[0]
+
+        self.idx_d = {'center':centered_neurons,'off_center':off_center_neurons,'excised':excised_neurons}
+
     def _get_neuron_np_coords(self, transform=True):
         """
         Extract (x,y) coordinate from Session data
@@ -92,6 +130,34 @@ class Session:
         coords = [_transform(item) for item in coords_list]
 
         return coords
+    
+    def _get_response(self):
+        pass
+        
+    def _get_thresholds(self,alpha=1):
+        """
+        Returns the thresholds for response depending on alpha 
+
+        Parameters: 
+        ---------------
+
+        alpha : float 
+            a multiplier for how many standard deviations above spontaneous activity is considered responsive
+        """
+        n_neurons,n_images,n_trials,n_ms = self.resp_train[:,0,:,:].shape
+        blkdur = BLKDUR
+
+        trains_blk = self.resp_train_blk[:,:,:,n_ms-blkdur:n_ms+1]
+        spike_count_blk = np.sum(trains_blk,axis=-1)
+        rate_blk = spike_count_blk/blkdur
+
+        rate_blk_mean = np.mean(rate_blk,axis=(-1,-2))
+        rate_blk_std = np.std(rate_blk,axis=(-1,-2))
+
+        thresh = rate_blk_mean + alpha*rate_blk_std
+
+        return thresh
+
 
     def get_image_data(self, img_idx):
         """
@@ -112,75 +178,116 @@ class Session:
         }
         return d
 
-    def get_spike_train(self, neuron=None, image=None, trials=None, blkwindow=None):
+    def neuron_exclusion(self, rate_std_thresh=1, large_img_idx=1):
         """
-        Gets a spike train from a particular neuron for a particular image averaged across all trials
+        Excludes neurons for a given image, exclusion criteria are:
+
+        i) rate_evoked n std. devs above rate_spontaneous
+        ii) fano factor < 5
 
         Parameters:
         ------------
-
-        neuron : int
-            The index of a particular neuron, if None: returns values for all neurons
-        image : int
-            The index of a particular image, if None: returns values for all images
-        trials : int
-            The index of a particular trial, if None: returns values averaged across trials
-        blkwindow : list-like
-            The time step to consider as the "blank" response, which is appended to the end of the evoked response.
-            if None: use the class variable self.blkwindow from Session data
-
-        Returns:
-        --------
-        train : np.array
-            The spike train for a particular neuron at a particular image, blank train is appended to the end of the evoked response train
+        rate_std_thresh : float
+            a multiplier that determines threshold strictness for driven activity
         """
-        if blkwindow is not None:
-            blk_window_1 = blkwindow[0]
-            blk_window_2 = blkwindow[1]
-        else:
-            blk_window_1 = int(self.blkwindow[0][0])
-            blk_window_2 = int(self.blkwindow[0][1])
-            stim_train_large = self.resp_train[:, 1, :, :, :]
-            blk_train_large = self.resp_train_blk[:, ::2, :, blk_window_1:blk_window_2]
 
-        if trials is not None:
-            # TODO: incorporate sampling at a particular trial
-            stim_train_large_avg_T = np.mean(stim_train_large, axis=-2)
-            blk_train_large_avg_T = np.mean(blk_train_large, axis=-2)
-        else:
-            stim_train_large_avg_T = np.mean(stim_train_large, axis=-2)
-            blk_train_large_avg_T = np.mean(blk_train_large, axis=-2)
+        n_neurons, n_images, n_trials, n_ms = self.resp_train[:, 0, :, :].shape
 
-        if neuron is not None and image is not None:
-            stim_train = stim_train_large_avg_T[neuron, image, :]
-            blk_train = blk_train_large_avg_T[neuron, image, :]
-            train = np.concatenate((stim_train, blk_train), axis=-1)
-        elif neuron is None and image is not None:
-            stim_train = stim_train_large_avg_T[:, image, :]
-            blk_train = blk_train_large_avg_T[:, image, :]
+        blkdur = BLK_WINDOW[1] - BLK_WINDOW[0]
 
-            train = np.concatenate((stim_train, blk_train), axis=-1)
+        # splice together train
+        # neurons x images x trials x ms
+        a_large = self.resp_train[:, large_img_idx, :, :, :]
+        a_small = self.resp_train[:, large_img_idx - 1, :, :, :]
+        # neurons x images x trials x last 50 ms of blank
+        b = self.resp_train_blk[:, :, :, n_ms - blkdur : n_ms + 1]
 
-        elif neuron is not None and image is None:
-            stim_train = stim_train_large_avg_T[neuron, :, :]
-            blk_train = blk_train_large_avg_T[neuron, :, :]
+        spike_count_stim_large = np.sum(a_large, axis=-1)
+        spike_count_stim_small = np.sum(a_small, axis=-1)
+        spike_count_blk = np.sum(b, axis=-1)
 
-            train = np.concatenate((stim_train, blk_train), axis=-1)
+        # rate and spontaneous activity calculation
 
-        return train
+        rate_stim_large = spike_count_stim_large / (STIM_WINDOW[1] - STIM_WINDOW[0])
+        rate_stim_small = spike_count_stim_small / (STIM_WINDOW[1] - STIM_WINDOW[0])
+        rate_blk = spike_count_blk / (BLK_WINDOW[1] - BLK_WINDOW[0])
 
-    #decide if static methods should be part of Session class or go somehwere else?  
+        rate_blk_mean = np.mean(rate_blk, axis=(-1, -2))
+        rate_blk_std = np.std(rate_blk, axis=(-1, -2))
+
+        rate_thresh = rate_blk_mean + rate_std_thresh * (rate_blk_std)
+        rate_thresh_full = np.expand_dims(rate_thresh, -1).repeat(n_images, axis=-1)
+
+        # LARGE IMAGE EXCLUSION
+        rate_stim_mean_large = np.mean(rate_stim_large, axis=-1)
+        # excludes (neuron,image) pairs with low evoked activity
+        cond_rate_large = rate_stim_mean_large < rate_thresh_full
+
+        mm_large = np.mean(spike_count_stim_large, axis=-1)
+        vv_large = (np.std(spike_count_stim_large, axis=-1)) ** 2
+
+        ff_large = mm_large / vv_large
+        # SMALL IMAGE EXCLUSION
+        rate_stim_mean_small = np.mean(rate_stim_small, axis=-1)
+        # excludes (neuron,image) pairs with high evoked activity
+        cond_rate_small = rate_stim_mean_small > rate_thresh_full
+
+        mm_small = np.mean(spike_count_stim_small, axis=-1)
+        vv_small = (np.std(spike_count_stim_small, axis=-1)) ** 2
+
+        ff_small = mm_small / vv_small
+
+        cond_ff_large = ff_large > 5
+        cond_ff_small = ff_small > 5
+
+        excluded_neuron_idx_large = np.concatenate(
+            (np.where(cond_rate_large)[0], np.where(cond_ff_large)[0])
+        )
+        excluded_image_idx_large = np.concatenate(
+            (np.where(cond_rate_large)[1], np.where(cond_ff_large)[1])
+        )
+
+        excluded_neuron_idx_small = np.concatenate(
+            (
+                np.where(cond_rate_small)[0],
+                np.where(cond_rate_large)[0],
+                np.where(cond_ff_small)[0],
+                np.where(cond_ff_large)[0],
+            )
+        )
+        excluded_image_idx_small = np.concatenate(
+            (
+                np.where(cond_rate_small)[1],
+                np.where(cond_rate_large)[1],
+                np.where(cond_ff_small)[1],
+                np.where(cond_ff_large)[1],
+            )
+        )
+
+        excluded_image_idx_large = np.unique(excluded_image_idx_large)
+        excluded_image_idx_small = np.unique(excluded_image_idx_small)
+
+        self.resp_large[excluded_neuron_idx_large, excluded_image_idx_large, :] = np.nan
+        self.resp_small[excluded_neuron_idx_small, excluded_image_idx_large, :] = np.nan
+
+        exclusion_map_small = np.ones((n_neurons, n_images))
+        exclusion_map_large = np.ones((n_neurons, n_images))
+        exclusion_map_small[excluded_neuron_idx_small, excluded_image_idx_small] = 0
+        exclusion_map_large[excluded_neuron_idx_large, excluded_image_idx_large] = 0
+        self.exclusion_map_small = exclusion_map_small
+        self.exclusion_map_large = exclusion_map_large
+
+    # Decide whether to put spike-train utils here as staticmethods or in another module
     @staticmethod
-    def _get_spike_counts(self,train):
-        a = train 
-        out = (a/a[np.nonzero(a)]).min()
+    def _get_spike_counts(train):
+        a = train
+        out = a / a[np.nonzero(a)].min()
 
-        return out 
-    
+        return out
+
     @staticmethod
-    def _get_firing_rate(self,train,window):
-        counts = self._get_spike_counts(train)
-        t1,t2 = window 
-        r = sum(counts[t1:t2+1])/(t2-t1)
+    def _get_firing_rate(counts, window):
+        t1, t2 = window
+        r = sum(counts[t1 : t2 + 1]) / (t2 - t1)
 
-        return r 
+        return r
