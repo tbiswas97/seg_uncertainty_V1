@@ -1230,7 +1230,6 @@ def load_bsd(n, filepath, subject=None, gt_only=False, im_only=False):
 
 @decorator.decorator
 def slicer(fxn, arr, *args, **kwargs):
-    h, w = arr.shape[1:]
 
     arr_ = [fxn(frame, *args, **kwargs) for frame in arr]
 
@@ -1362,7 +1361,31 @@ def euclidean_distance(coord1, coord2):
     return math.sqrt((coord2[0] - coord1[0]) ** 2 + (coord2[1] - coord1[1]) ** 2)
 
 
-def is_centered(coord, size=(256, 256), thresh=25, d = 0, origin=None):
+@slicer
+def is_centered_xy(coord, origin=None, thresh=25, d = 0):
+    """
+    Determines whether a coordinate is in the center of an image."""
+
+    if origin is not None: 
+        cy,cx = origin
+    else:
+        cy,cx = (0,0)
+
+    _is_centered_x = lambda x: not ((x < cx - thresh) or (x > cx + thresh))
+    _is_centered_y = lambda y: not ((y < cy - thresh) or (y > cy + thresh))
+
+    _off_centered_x = lambda x: ((x < cx - thresh-d) or (x > cx + thresh+d))
+    _off_centered_y = lambda y: ((y < cy - thresh-d) or (y > cy + thresh+d))
+
+    if _is_centered_x(coord[0]) and _is_centered_y(coord[1]):
+        return 1
+    elif _off_centered_x(coord[0]) or _off_centered_y(coord[1]):
+        return 2
+    else: 
+        return 0 
+    
+
+def is_centered_np(coord, size=(256, 256), thresh=25, d = 0, origin=None):
     """
     Determines whether a coordinate is in the center of an image."""
 
@@ -1372,8 +1395,8 @@ def is_centered(coord, size=(256, 256), thresh=25, d = 0, origin=None):
         cy = size[0] // 2
         cx = size[1] // 2
 
-    _is_centered_x = lambda x: not ((x < cx - thresh - d) or (x > cx + thresh + d))
-    _is_centered_y = lambda y: not ((y < cy - thresh - d) or (y > cy + thresh + d))
+    _is_centered_x = lambda x: not ((x < cx - thresh) or (x > cx + thresh))
+    _is_centered_y = lambda y: not ((y < cy - thresh) or (y > cy + thresh))
 
     return _is_centered_x(coord[1]) and _is_centered_y(coord[0])
 
