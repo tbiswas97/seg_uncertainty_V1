@@ -3,6 +3,8 @@ import import_utils
 import toolbox as tb
 import numpy as np
 import os
+from itertools import combinations
+import pandas as pd 
 
 # best probes for Neuropixel data
 DEFAULT_PROBES = [1, 3, 4]
@@ -10,6 +12,7 @@ DEFAULT_PROBES = [1, 3, 4]
 STIM_WINDOW = (5, 105)
 # blk window uses the last 50 ms of resp_train_blk
 BLK_WINDOW = (106, 155)
+SMALL_LARGE_IDXS = {"small":0, "large":1}
 
 BLKDUR = BLK_WINDOW[1] - BLK_WINDOW[0]
 STIMDUR = STIM_WINDOW[1] - STIM_WINDOW[0]
@@ -41,6 +44,7 @@ class Session:
         # probes are 1-indexed NOT 0-indexed so we must subtract 1
         if type == "utah":
             self.use_probe(num=None)
+            self.get_exp_info()
             if neuron_exclusion:
                 self.neuron_exclusion()
         elif type == "neuropixel":
@@ -82,6 +86,16 @@ class Session:
             self.n_neurons = len(self.xy_coords)
             self.np_coords = self._get_neuron_np_coords()
 
+    def get_exp_info(self):
+        n_neurons, n_conditions,n_images, n_trials, n_ms = self.resp_train[:, :, :, :, :].shape
+        self.exp_info = {
+            "n_neurons": n_neurons,
+            "n_conditions": n_conditions,
+            "n_images": n_images,
+            "n_trials": n_trials,
+            "n_ms": n_ms,
+        }
+
     def get_neuron_locations(self, thresh=25, d=10):
         """
         Splits neurons into three pools: center, off-center, and excised.
@@ -109,11 +123,16 @@ class Session:
 
         self.neuron_locations = {k: np.where(np.asarray(out) == v)[0] for k, v in temp}
 
-        resp_train_reindex = np.moveaxis(self.resp_train, 1, 2)
+        self.spike_counts = np.sum(self.resp_train,axis=-1)
 
         self.resp_train_d = {
-            k: resp_train_reindex[self.neuron_locations[k], ...] for k in locations
+            k: self.resp_train[self.neuron_locations[k], ...] for k in locations
         }
+    
+    def _get_neuron_location(self,neuron):
+        for k in self.neuron_locations.keys():
+            if neuron in self.neuron_locations[k]:
+                return k
 
     def _get_neuron_np_coords(self, transform=True):
         """
@@ -140,49 +159,109 @@ class Session:
         return coords
 
     def neuron_exclusion(self, thresh=25, d=10, alpha=1, unresponsive_alpha=0):
-        
-        self._neuron_exclusion(
-            thresh=thresh,
-            d=d,
-            alpha=alpha,
-            unresponsive_alpha=unresponsive_alpha
-            )
-
-        _add_dims = lambda x,y: np.reshape(x,list(x.shape)+[1]*(y.ndim-x.ndim))
-
-        locations = ["center", "off_center"]
-
-        x = self.exclusion_masks
-        y = self.resp_train_d
-
-        extended_exclusion_maps = {k:_add_dims(x[k],y[k]) for k in locations
-        }
-
-        exclusion_maps_br = {
-            k:np.broadcast_to(extended_exclusion_maps[k],y[k].shape) for k in locations
-            }
-        
-        z = exclusion_maps_br
-        
-        self.resp_train_masked = {
-            k:np.ma.masked_array(y[k],mask=z[k]) for k in locations
-        }
-
-    def _neuron_exclusion(self, thresh=25, d=10, alpha=1, unresponsive_alpha=0):
-        self.get_neuron_locations(thresh=thresh,d=d)
+        self.get_neuron_locations(thresh=thresh, d=d)
         self.get_mean_fr()
         self.get_thresholds(alpha=alpha, unresponsive_alpha=unresponsive_alpha)
 
         temp = {
-            "center":(self.mean_frs["center_small"] < self.thresholds["center_responsive"]),
-            "off_center_1":self.mean_frs["off_center_small"] > self.thresholds["off_center_unresponsive"],
-            "off_center_2":self.mean_frs["off_center_large"] < self.thresholds["off_center_responsive"]
+            "center": (
+                self.mean_frs["center_small"] < self.thresholds["center_responsive"]
+            ),
+            "off_center_1": self.mean_frs["off_center_small"]
+            > self.thresholds["off_center_unresponsive"],
+            "off_center_2": self.mean_frs["off_center_large"]
+            < self.thresholds["off_center_responsive"],
         }
 
         self.exclusion_masks = {
-            "center" : temp["center"],
-            "off_center" : np.logical_and(temp["off_center_1"],temp["off_center_2"])
+            "center": temp["center"],
+            "off_center": np.logical_and(temp["off_center_1"], temp["off_center_2"]),
         }
+
+        self.masked = True
+
+    def get_df(self):
+        to_concat = []
+        for im in range(self.exp_info['n_images']):
+            df = self._get_im_df(im)
+            to_concat.append(df)
+        
+        out = pd.concat(to_concat,ignore_index=True)
+
+        self.df = out
+
+        return out
+
+    def _get_im_df(self,im):
+        responsive_neurons = self._get_responsive_neurons_at_image(im)
+        pairs = list(combinations(responsive_neurons,2))
+
+        d = {}
+
+        d["img_idx"] = [im]*len(pairs)
+        d["n_pairs"] = [len(pairs)]*len(pairs)
+        d["pairs"] = pairs
+        d["neuron1"] = [pair[0] for pair in pairs]
+        d["neuron1_pos"] = [self._get_neuron_location(pair[0]) for pair in pairs]
+        d["neuron2"] = [pair[1] for pair in pairs]
+        d["neuron2_pos"] = [self._get_neuron_location(pair[1]) for pair in pairs]
+        d["rsc_small"] = [self._get_rsc_at_image(pair,im,"small") for pair in pairs]
+        d["rsc_large"] = [self._get_rsc_at_image(pair,im,"large") for pair in pairs]
+        d["distance"] = [self._get_dist_between_neurons(pair) for pair in pairs]
+        
+        df = pd.DataFrame.from_dict(d)
+
+        df["pair_orientation"] = 0 
+        df.loc[(df.neuron1_pos=="center")&(df.neuron2_pos=="center"),"pair_orientation"] = 1
+        df.loc[(df.neuron1_pos=="center")^(df.neuron2_pos=="center"),"pair_orientation"] = 2
+        df.loc[df.pair_orientation==1,"pair_orientation"] = "centered"
+        df.loc[df.pair_orientation==2,"pair_orientation"] = "mixed"
+        #df.loc[(df.neuron1_pos=="center") & (df.neuron2_pos=="center"),"pair_orientation"] = 1
+        #df.loc[(df.neuron1_pos=="center") ^ (df.neuron2_pos=="center"), "pair_orientation"] = 2
+
+        #df = df.loc[df.pair_orientation != 0]
+
+        #df.loc[df.pair_orientation==1] = "centered"
+        #df.loc[df.pair_orientation==1] = "mixed"
+        
+
+
+        return df.loc[df.pair_orientation != 0] 
+
+
+
+    def _get_dist_between_neurons(self,neuron_pair_tup):
+
+        neuron1 = neuron_pair_tup[0]
+        neuron2 = neuron_pair_tup[1]
+        coord1 = self.XYch[neuron1]
+        coord2 = self.XYch[neuron2]
+
+        return tb.euclidean_distance(coord1,coord2)
+
+    def _get_rsc_at_image(self,neuron_pair_tup,image,condition):
+        """
+        
+        """
+        x,y = self.spike_counts[
+            neuron_pair_tup,SMALL_LARGE_IDXS[condition],image,:
+        ]
+
+        out = tb.pearson_r(x,y)
+
+        return out
+
+    def _get_responsive_neurons_at_image(self,image):
+        locations = ["center","off_center"]
+
+        responsive_idxs = {
+            k:self.neuron_locations[k][~(self.exclusion_masks[k][:,image])]
+            for k in locations
+            }
+        
+        out = np.concatenate(list(responsive_idxs.values()))
+
+        return out
 
     def get_mean_fr(self):
         locations = ["center", "off_center", "off_center"]
@@ -209,20 +288,20 @@ class Session:
             "large" : uses neuron responses to the large stimulus
         """
 
-        d = {"small": 0, "large": 1}
+        d = SMALL_LARGE_IDXS
 
         if neuron_location == "center":  # use small image
-            img_idx = 0
+            idx = 0
         elif neuron_location == "off_center":  # use large image
-            img_idx = 1
+            idx = 1
 
         if im_size is not None:
-            img_idx = d[im_size]
+            idx = d[im_size]
         else:
             pass
 
         _train_stim = self.resp_train[
-            self.neuron_locations[neuron_location], img_idx, :, :, :
+            self.neuron_locations[neuron_location], idx, :, :, :
         ]
         _spike_count_stim = np.sum(_train_stim, axis=-1)
         _rate_stim = _spike_count_stim / STIMDUR
@@ -232,13 +311,13 @@ class Session:
 
         return out
 
-    def get_thresholds(self, alpha=1, unresponsive_alpha = 0):
-        locations = ["center", "off_center","off_center"]
-        conditions = ["_responsive","_responsive","_unresponsive"]
+    def get_thresholds(self, alpha=1, unresponsive_alpha=0):
+        locations = ["center", "off_center", "off_center"]
+        conditions = ["_responsive", "_responsive", "_unresponsive"]
         alphas = [alpha, alpha, unresponsive_alpha]
         self.thresholds = {
-            i+j: self._get_threshold(alpha=k, neuron_location=i)
-            for i,j,k in zip(locations, conditions, alphas)
+            i + j: self._get_threshold(alpha=k, neuron_location=i)
+            for i, j, k in zip(locations, conditions, alphas)
         }
 
     def _get_threshold(self, alpha=1, neuron_location="center"):
@@ -290,17 +369,3 @@ class Session:
         }
         return d
 
-    # Decide whether to put spike-train utils here as staticmethods or in another module
-    @staticmethod
-    def _get_spike_counts(train):
-        a = train
-        out = a / a[np.nonzero(a)].min()
-
-        return out
-
-    @staticmethod
-    def _get_firing_rate(counts, window):
-        t1, t2 = window
-        r = sum(counts[t1 : t2 + 1]) / (t2 - t1)
-
-        return r
