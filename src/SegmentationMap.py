@@ -322,31 +322,9 @@ class SegmentationMap:
         else:
             S = self.Session
             # TODO: implement default behavior for loading Session which directly loads from a directory
-
-        self.probe = probe
-        S.use_probe(probe)
-
-        d = S.get_image_data(self.iid_idx)
-
-        d["segments"] = [
-            tb.get_coord_segment(coord, self.primary_seg_map) for coord in d["coords"]
-        ]
-
-        try:
-            d["corr_mat_large"] = np.corrcoef(d["resp_large"])
-            d["cov_mat_large"] = np.cov(d["resp_large"])
-            d["corr_mat_small"] = np.corrcoef(d["resp_small"])
-            d["cov_mat_small"] = np.cov(d["resp_small"])
-        except RuntimeWarning:  # suppresses division by zero warning
-            pass
-
-        self.neural_d = d
-        self.neural_df = self._make_neural_df()
-        df = self.neural_df
-        self.centered_df = df.loc[
-            (df.neuron1_centered == True) | (df.neuron2_centered == True)
-        ]
-        self.session_loaded = True
+        if self.type == "neuropixel":
+            self.probe = probe
+            S.use_probe(probe)
 
         if full and self.primary_seg_map is None:
             self.get_full_df()
@@ -360,50 +338,10 @@ class SegmentationMap:
         is_centered = lambda x: tb.is_centered(x, size=self.im.shape)
 
         dd = {}
-        dd["pairs"] = pairs
-        dd["neuron1"] = [pair[0] for pair in pairs]
-        dd["neuron1_centered"] = [is_centered(coords[pair[0]]) for pair in pairs]
-        dd["neuron2"] = [pair[1] for pair in pairs]
-        dd["neuron2_centered"] = [is_centered(coords[pair[1]]) for pair in pairs]
-        dd["rsc_large"] = [self.neural_d["corr_mat_large"][pair] for pair in pairs]
-        dd["rsc_small"] = [self.neural_d["corr_mat_small"][pair] for pair in pairs]
-        diff_mat = self.neural_d["corr_mat_small"] - self.neural_d["corr_mat_large"]
-        dd["delta_rsc"] = [diff_mat[pair] for pair in pairs]
-        dd["distance"] = [
-            tb.euclidean_distance(coords[pair[0]], coords[pair[1]]) for pair in pairs
-        ]
         dd["segment_1"] = [self.neural_d["segments"][pair[0]] for pair in pairs]
         dd["segment_2"] = [self.neural_d["segments"][pair[1]] for pair in pairs]
         df = pd.DataFrame.from_dict(dd)
         df["seg_flag"] = df["segment_1"] == df["segment_2"]
-        df.insert(6, "fisher_rsc_large", np.arctanh(df["rsc_large"]))
-        df.insert(7, "fisher_rsc_small", np.arctanh(df["rsc_small"]))
-        df.insert(
-            10, "fisher_delta_rsc", df["fisher_rsc_small"] - df["fisher_rsc_large"]
-        )
-        df.insert(
-            11,
-            "fisher_delta_rsc_index",
-            0.5
-            * (
-                (df["fisher_rsc_small"] - df["fisher_rsc_large"])
-                / (abs(df["fisher_rsc_small"]) + abs(df["fisher_rsc_large"]))
-            ),
-        )
-
-        return df
-
-    def make_plotting_df(self, param="delta"):
-        if param == "delta":
-            df = self.centered_df
-            df = df.replace([np.inf, -np.inf], np.nan)
-            df = df.dropna()
-        elif param == "rsc_large":
-            df = self.neural_df
-            df = df.replace([np.inf, -np.inf], np.nan)
-            df = df.dropna()
-
-        return df
 
     def _make_condition_df(self, gt, model, n_components, layer) -> pd.DataFrame:
         self.set_primary_seg_map(
@@ -474,146 +412,6 @@ class SegmentationMap:
         ]
 
         return df1
-
-    def get_all_mwu(self, stat="delta_rsc_pdc", models=["c"], probes=[1, 3, 4]):
-        # TODO: %cleanup - maybe delete this function?
-        """
-        Calculates a p-value for each segmentation map
-        """
-        models = models
-        n_components = self.model_components
-        layers = range(4)
-        probes = probes
-
-        out = []
-        params = []
-        for probe in probes:
-            for model in models:
-                for k in n_components:
-                    for layer in layers:
-                        out.append(
-                            self._mwu_seg_map(
-                                stat=stat,
-                                gt=None,
-                                model=model,
-                                n_components=k,
-                                layer=layer,
-                                probe=probe,
-                            )
-                        )
-                        params.append((model, k, layer, probe))
-
-        # %TODO: implement for ground-truth data too
-
-        return out, params
-
-    def _mwu_seg_map(
-        self,
-        stat="delta_rsc_pdc",
-        alternative="two-sided",
-        gt=None,
-        model="c",
-        n_components=None,
-        layer=0,
-        probe=1,
-    ):
-        """
-        Sets the mann-whitney-u p-value for same segment vs. different segment delta_rsc
-
-        Parameters:
-        -----------
-        stat : str
-            must be a field in self.neural_df
-        alternative : str
-            from scipy.stats.mannwhitneyu:
-            'two-sided': the distributions are not equal, i.e. *F(u) ≠ G(u)* for at least one *u*.
-            'less': the distribution underlying x is stochastically less than the distribution underlying y, i.e. *F(u) > G(u)* for all *u*.
-            'greater': the distribution underlying x is stochastically greater than the distribution underlying y, i.e. *F(u) < G(u)* for all *u*.
-        gt : bool
-            if gt is True, the ground-truth annotated image specified by n_components is used to generate data
-        model : str
-            specifies which model to use as a key
-        n_components : int
-            number of components to use as a key
-        layer : int
-            layer INDEX to use as a key, index 0 means the 16th layer
-            each proceeding index corresponds to 4 layers down
-        probe : int
-            specifies which probe to use to generate data
-
-        Returns:
-        --------
-        None
-        """
-        self.probe = probe
-        self.set_primary_seg_map(
-            gt=gt, model=model, n_components=n_components, layer=layer
-        )
-
-        df = self.neural_df
-        res = self._mwu_df(df, stat=stat, alternative=alternative)
-
-        return res
-
-    def _mwu_df(self, df, stat="delta_rsc_pdc", alternative="two-sided"):
-        df = df
-        if stat == "delta_rsc" or stat == "delta_rsc_pdc":
-            if "neuron1_centered" in df.columns:
-                if "neuron2_centered" in df.columns:
-                    df = df.loc[
-                        (df["neuron1_centered"] == True)
-                        | (df["neuron2_centered"] == True)
-                    ]
-            x = df[stat][df.seg_flag == True].dropna().values
-            y = df[stat][df.seg_flag == False].dropna().values
-        elif stat == "z_norm_rsc_large":
-            x = df[stat][df.seg_flag == True].dropna().values
-            y = df[stat][df.seg_flag == False].dropna().values
-        try:
-            res = mannwhitneyu(x, y, alternative=alternative)
-        except ValueError:
-            res = (None, None)
-            print("All neurons are in one segment")
-
-        return res
-
-    def _calculate_rsc(self, neuron1, neuron2, flag=True):
-        """
-        Calculates the noise correlation between two neurons for the given image
-        Parameters:
-        -----------
-        neuron1 : int
-            index of neuron 1
-        neuron2 : int
-            index of neuron 2
-        flag : bool
-            if True, returns seg_flag
-
-        Returns:
-        --------
-        rsc_large : float
-            Pearson correlation coeff for large image neural data
-        rsc_small : float
-            Pearson correlation coeff for small image neural data
-        seg_flag : bool
-            if True the two neurons are part of the same segment, otherwise False
-        """
-        rsc_large = self.neural_d["corr_mat_large"][neuron1, neuron2]
-        rsc_small = self.neural_d["corr_mat_small"][neuron1, neuron2]
-        seg_flag = (
-            self.neural_d["segments"][neuron1] == self.neural_d["segments"][neuron2]
-        )
-
-        return rsc_large, rsc_small, rsc_large - rsc_small, seg_flag
-
-    def check_session(self):
-        """
-        Checks if Session object is loaded
-        """
-        if self.session_loaded:
-            return True
-        else:
-            return False
 
     def _get_neuron_segments(self, neuron_num):
         """
