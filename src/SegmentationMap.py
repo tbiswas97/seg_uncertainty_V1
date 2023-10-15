@@ -144,7 +144,16 @@ class SegmentationMap:
 
         return a + b
 
-    def fit_model(self, model="ac", n_components=None, max_components=10):
+    def fit_model(
+        self,
+        model="ac",
+        n_components=None,
+        max_components=10,
+        layer_start=0,
+        layer_stop=16,
+        layer_step=4,
+        binning=True,
+    ):
         """
         Runs perceptual segmentation model on self.im
         Models are defined in models_deep_seg.py
@@ -154,6 +163,13 @@ class SegmentationMap:
         model : str
             string of options for which model to run, options are 'a','b','c', or combinations
             default behavior is to run model 'a' and model 'c'
+        n_components : np.array
+            Array of how many components for the model to return.
+            If input is [4,5] the model will generate one result with 4 components, and one result with 5 components.
+        max_components : int
+            Maximum allowed number of components
+        layer_start, layer_stop, layer_step : int
+            layers will be assigned to the self.seg_maps variable according to indexes: [layer_start, layer_stop, layer_step]
 
         Raises:
         ------
@@ -195,23 +211,35 @@ class SegmentationMap:
             self.seg_maps[key] = {}
             n = d[key].shape[1]
 
+            # different values of i will have different n_components
             for i in range(n):
+                # index 2 below is the index for the smm object
                 smm = d[key][0, i, 2, 0]
+                smm_last = d[key][-1, i, 2, 0]
                 Ny, Nx = smm.im_shape
+                _Ny, _Nx = smm_last.im_shape
                 self.seg_maps[key][smm.n_components] = []
                 layers = d[key][
-                    0:16:4, i, 2, 0
+                    layer_start:layer_stop:layer_step, i, 2, 0
                 ]  # generates seg map from every 4th layer
 
                 for layer in layers:
                     ny, nx = layer.im_shape
                     smap = layer.weights_.argmax(1).reshape((ny, nx))
 
-                    if ny != Ny:
-                        assert Ny // ny == Nx // nx
-                        multiplier = Ny // ny
-                        m = multiplier
+                    if binning == True:
+                        smap = tb._bin(smap, binsize=(ny // _Ny, nx // _Nx))
+                        assert ny // _Ny == nx // _Nx
+
+                        m = ny // _Ny
                         smap = smap.repeat(m, 0).repeat(m, 1)
+
+                    else:
+                        if ny != Ny:
+                            assert Ny // ny == Nx // nx
+                            multiplier = Ny // ny
+                            m = multiplier
+                            smap = smap.repeat(m, 0).repeat(m, 1)
 
                     self.seg_maps[key][smm.n_components].append(smap)
 
@@ -321,149 +349,8 @@ class SegmentationMap:
             self.Session = Session
         else:
             S = self.Session
-            # TODO: implement default behavior for loading Session which directly loads from a directory
-        if self.type == "neuropixel":
-            self.probe = probe
-            S.use_probe(probe)
-
         if full and self.primary_seg_map is None:
             self.get_full_df()
-
-    def _make_neural_df(self) -> pd.DataFrame:
-        coords = self.neural_d["coords"]
-        total_neurons = len(coords)
-        pairs = list(combinations(range(total_neurons), 2))
-
-        # set size parameter for is_centered function (defined in toolbox.py)
-        is_centered = lambda x: tb.is_centered(x, size=self.im.shape)
-
-        dd = {}
-        dd["segment_1"] = [self.neural_d["segments"][pair[0]] for pair in pairs]
-        dd["segment_2"] = [self.neural_d["segments"][pair[1]] for pair in pairs]
-        df = pd.DataFrame.from_dict(dd)
-        df["seg_flag"] = df["segment_1"] == df["segment_2"]
-
-    def _make_condition_df(self, gt, model, n_components, layer) -> pd.DataFrame:
-        self.set_primary_seg_map(
-            gt=gt, model=model, n_components=n_components, layer=layer
-        )
-        df = self.neural_df
-        df["gt"] = gt
-        df["model"] = model
-        df["layer"] = layer
-        df["n_components"] = n_components
-
-        return df
-
-    def get_full_df(
-        self, Session=None, models=["c"], probe=DEFAULT_PROBES, out="cleaned"
-    ) -> pd.DataFrame:
-        """
-        Makes a DataFrame with all conditions for the primary segmentation map.
-
-        Parameters:
-        ---------------
-
-        Session : session
-            Session class from Session.py
-        models : str
-            which models to get conditions for the primary segmentation map from
-        out : str
-            "cleaned" : returns a DataFrame centered, with no NaNs and ready to plot
-            "centered" : returns a DataFrame centered, with NaNs
-            "full" : returns full DataFrame with all values
-        """
-        if Session is not None:
-            S = Session
-            self.Session = Session
-        else:
-            S = self.Session
-            # TODO: implement default behavior for loading Session which directly loads from a directory
-
-        self.probe = probe
-        S.use_probe(probe)
-
-        self.session_loaded = True
-        models = models
-        n_components = self.model_components
-        layers = range(4)
-
-        to_concat = []
-        for model in models:
-            for k in n_components:
-                for layer in layers:
-                    to_concat.append(self._make_condition_df(None, model, k, layer))
-                    print(
-                        "Compiling data for model {} | k = {} | layer = {}".format(
-                            model, k, layer
-                        )
-                    )
-
-        df1 = pd.concat(to_concat).reset_index(drop=True)
-
-        df1["img_idx"] = self.iid_idx
-        df1["iid"] = self.iid
-        self.full_df = df1
-        self.centered_df = df1.loc[
-            (df1.neuron1_centered == True) | (df1.neuron2_centered == True)
-        ]
-        self.mixed_df = df1.loc[
-            (df1.neuron1_centered == True) ^ (df1.neuron2_centered == True)
-        ]
-
-        return df1
-
-    def _get_neuron_segments(self, neuron_num):
-        """
-        Returns the segment of a given neuron
-
-        Parameters:
-        -----------
-        neuron_num : int
-            index of neuron to return segment for
-        """
-        if self.check_session():
-            coords = self.neural_d["coords"]
-        else:
-            raise (RuntimeError("Session not loaded"))
-
-        if self.primary_seg_map is not None:
-            _map = self.primary_seg_map
-        else:
-            raise (AttributeError("Primary segmentation map is NoneType"))
-
-        neuron_coord = coords[neuron_num]
-
-        return tb.get_coord_segment(neuron_coord, _map)
-
-    def get_neuron_segments(self) -> None:
-        neuron_coords = self.Session.coords
-        segments = []
-        for neuron_num in range(len(neuron_coords)):
-            segments.append(self._get_neuron_segments(neuron_num))
-        self.neuron_segments = segments
-
-    def plot_delta_rsc_dist(
-        self, gt=None, model="c", n_components=None, layer=None, probe=None, type="kde"
-    ):
-        if self.primary_seg_map is not None:
-            df = self.neural_df
-        else:
-            probe = self.probe
-            self.Session.use_probe(probe)
-            self.set_primary_seg_map(
-                gt=gt, model=model, n_components=n_components, layer=layer
-            )
-            df = self.neural_df
-
-        if type == "kde":
-            sns.displot(
-                df, x="delta_rsc", hue="seg_flag", kind="kde", bw_adjust=0.2, fill=True
-            )
-        else:
-            sns.displot(
-                df, x="delta_rsc", hue="seg_flag", stat="density", multiple="stack"
-            )
 
     # Display functions: if self.cropped is True, then display the cropped image
 
