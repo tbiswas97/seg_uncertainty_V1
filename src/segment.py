@@ -17,12 +17,6 @@ device = torch.device("cpu")
 # load model and send it to device for evaluation only
 pretrained = True
 deepnet = models.vgg19(pretrained=pretrained).features.to(device).eval()
-# INPUT
-cd = os.getcwd()
-rel_path = "../data/bsd500-im-color-full.npz"
-filepath = os.path.abspath(os.path.join(cd, rel_path))
-INPUT_FILEPATH = filepath
-dat = np.load(filepath, allow_pickle=True)["data"]
 # number of layers (max 16)
 L = 16
 
@@ -261,6 +255,12 @@ def main(model_type="a"):
 
 
 if __name__ == "__main__":
+    # INPUT
+    cd = os.getcwd()
+    rel_path = "../data/bsd500-im-color-full.npz"
+    filepath = os.path.abspath(os.path.join(cd, rel_path))
+    INPUT_FILEPATH = filepath
+    dat = np.load(filepath, allow_pickle=True)["data"]
     # for model_type in ['a','b','c']:
     for model_type in ["ref"]:
         print("Starting...")
