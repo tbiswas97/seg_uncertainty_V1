@@ -18,9 +18,11 @@ import imageio as io
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
 from scipy.ndimage import laplace, gaussian_filter, gaussian_laplace
+from scipy.stats import bootstrap
 from natsort import natsorted as ns
 from glob import glob as glob
 from matplotlib import image
+from collections import Counter
 import math
 
 from sklearn.feature_extraction.image import extract_patches_2d
@@ -1230,7 +1232,6 @@ def load_bsd(n, filepath, subject=None, gt_only=False, im_only=False):
 
 @decorator.decorator
 def slicer(fxn, arr, *args, **kwargs):
-
     arr_ = [fxn(frame, *args, **kwargs) for frame in arr]
 
     output = arr_
@@ -1362,36 +1363,34 @@ def euclidean_distance(coord1, coord2):
 
 
 @slicer
-def is_centered_xy(coord, origin=None, thresh=25, d = 0):
+#put a maximum distance (size of large image)
+def is_centered_xy(coord, origin=[0, 0], thresh=25, d=0):
     """
-    Determines whether a coordinate is in the center of an image."""
+    Determines whether a coordinate is in the center of an image.
+    """
 
-    if origin is not None: 
-        cy,cx = origin
+    if origin is not None:
+        cy, cx = origin
     else:
-        cy,cx = (0,0)
+        cy, cx = (0, 0)
 
-    _is_centered_x = lambda x: not ((x < cx - thresh) or (x > cx + thresh))
-    _is_centered_y = lambda y: not ((y < cy - thresh) or (y > cy + thresh))
+    distance_from_origin = euclidean_distance(coord, origin)
 
-    _off_centered_x = lambda x: ((x < cx - thresh-d) or (x > cx + thresh+d))
-    _off_centered_y = lambda y: ((y < cy - thresh-d) or (y > cy + thresh+d))
-
-    if _is_centered_x(coord[0]) and _is_centered_y(coord[1]):
+    if distance_from_origin <= thresh:
         return 1
-    elif _off_centered_x(coord[0]) or _off_centered_y(coord[1]):
+    elif distance_from_origin >= (thresh + d):
         return 2
-    else: 
-        return 0 
-    
+    else:
+        return 0
 
-def is_centered_np(coord, size=(256, 256), thresh=25, d = 0, origin=None):
+
+def is_centered_np(coord, size=(256, 256), thresh=25, d=0, origin=None):
     """
     Determines whether a coordinate is in the center of an image."""
 
-    if origin is not None: 
-        cy,cx = origin
-    else: 
+    if origin is not None:
+        cy, cx = origin
+    else:
         cy = size[0] // 2
         cx = size[1] // 2
 
@@ -1406,7 +1405,119 @@ def calculate_percent_change(x_series, y_series, c=1):
     return out
 
 
+def _bin(im,binsize=(16,16)):
+    """
+    A function that downsamples segmentation maps by outputting the most common element 
+    for a sliding window with size binsize
+
+    Parameters: 
+    ------------
+    im : array 
+        A Ny x Nx array 
+
+    binsize : tup of int (by,bx)
+        The size of the sliding window used
+
+    Returns: 
+    ------------
+    new_im : array of size (Ny/by) x (Nx/bx)
+    """
+    #original dimensions of array
+    by,bx = binsize
+    Ny,Nx = im.shape
+    #new shape
+    ny,nx = Ny//by, Nx//bx
+    r_im = im.reshape(ny,by,nx,bx)
+    
+    new_im = np.zeros(shape=(ny,nx))
+    
+    most_common = lambda arr: (Counter(np.ravel(arr)).most_common())[0][0]
+    
+    for i in range(ny):
+        for j in range(nx):
+            new_im[i,j] = most_common(r_im[i,:,j,:])
+    
+    return new_im
+
 def clean_df(df):
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna()
     return df
+
+def divide_2f(x,y):
+    return np.round(x/y,2)
+
+def pearson_r(x, y, invalid_value=np.nan):
+    # Check if the input vectors have the same length
+    if len(x) != len(y):
+        raise ValueError("Input vectors must have the same length")
+
+    # Calculate the mean of x and y
+    mean_x = sum(x) / len(x)
+    mean_y = sum(y) / len(y)
+
+    # Calculate the numerator and denominators for Pearson correlation coefficient
+    numerator = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y))
+    denominator_x = sum((xi - mean_x) ** 2 for xi in x)
+    denominator_y = sum((yi - mean_y) ** 2 for yi in y)
+
+    if denominator_x == 0 or denominator_y == 0:
+        # Handle the case where one of the vectors has zero variance
+        return invalid_value
+    else:
+        return numerator / (denominator_x**0.5 * denominator_y**0.5)
+
+
+def mean_match(data1, data2, nboot, nbin):
+
+
+    new_edges = np.linspace(
+        np.amin(np.array([data1, data2])),
+        np.amax(np.array([data1, data2])),
+        num=nbin + 1,
+    )
+    new_counts = np.zeros((nbin, 1))
+
+    samples_data1 = []
+    samples_data2 = []
+
+    for i in range(nbin + 1):
+        bin_min = new_edges[i]
+        bin_max = new_edges[i + 1]
+
+        bin_idx_data_1 = np.where(((data1 > bin_min) & (data1 < bin_max)))[0]
+        bin_idx_data_2 = np.where(((data2 > bin_min) & (data2 < bin_max)))[0]
+
+        num_samples = min((len(bin_idx_data_1), len(bin_idx_data_2)))
+
+        def return_n_samples(x,**kwargs):
+            return x[:num_samples]
+
+        if num_samples > 0:
+            if len(bin_idx_data_1) == 1:
+                idx1_samples = np.ones((nboot, 1)) * bin_idx_data_1
+            else:
+                idx1_samples = bootstrap(
+                    (bin_idx_data_1,), return_n_samples, n_resamples=nboot
+                ).bootstrap_distribution
+
+            if len(bin_idx_data_2) == 1:
+                idx2_samples = np.ones((nboot, 1)) * bin_idx_data_2
+            else:
+                idx2_samples = bootstrap(
+                    (bin_idx_data_2,), x, n_resamples=nboot
+                ).bootstrap_distribution
+
+            samples_data1.append(idx1_samples)
+            samples_data2.append(idx2_samples)
+
+            new_counts[i, :] = num_samples
+
+    d = {
+        "samples_data1": samples_data1,
+        "samples_data2": samples_data2,
+        "new_edges": new_edges,
+        "new_counts": new_counts,
+    }
+
+    return d
