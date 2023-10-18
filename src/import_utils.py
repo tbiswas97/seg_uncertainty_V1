@@ -7,13 +7,12 @@ import h5py
 import pickle
 
 # CHANGE EXP NAME HERE
-# EXP_NAME = "EXP150_NatImages_NeuroPixels"
-EXP_NAME = "Sessions_NaturalEnsemble_136"
+EXP_NAME = "EXP150_NatImages_NeuroPixels"
+#EXP_NAME = "Sessions_NaturalEnsemble_136"
 
 # iids of images associated with experiment
 if EXP_NAME == "EXP150_NatImages_NeuroPixels":
-    IID_MAT_PATH = os.path.abspath(
-        os.path.join(
+    IID_MAT_PATH = os.path.abspath( os.path.join(
             os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Names.mat"
         )
     )
@@ -95,7 +94,7 @@ def get_EXP_INFO(EXP_NAME):
 
 
 # Paths to BSD data
-JPG_PATH = os.path.abspath(
+JPG_PATH_TRAIN = os.path.abspath(
     os.path.join(
         os.path.dirname(os.getcwd()),
         "data",
@@ -106,7 +105,31 @@ JPG_PATH = os.path.abspath(
         "train",
     )
 )
-SEG_PATH = os.path.abspath(
+JPG_PATH_TEST = os.path.abspath(
+    os.path.join(
+        os.path.dirname(os.getcwd()),
+        "data",
+        "BSR",
+        "BSDS500",
+        "data",
+        "images",
+        "test",
+    )
+)
+
+JPG_PATH_VAL = os.path.abspath(
+    os.path.join(
+        os.path.dirname(os.getcwd()),
+        "data",
+        "BSR",
+        "BSDS500",
+        "data",
+        "images",
+        "val"
+    )
+)
+
+SEG_PATH_TRAIN = os.path.abspath(
     os.path.join(
         os.path.dirname(os.getcwd()),
         "data",
@@ -114,7 +137,31 @@ SEG_PATH = os.path.abspath(
         "BSDS500",
         "data",
         "groundTruth",
-        "train",
+        "train"
+    )
+)
+
+SEG_PATH_TEST = os.path.abspath(
+    os.path.join(
+        os.path.dirname(os.getcwd()),
+        "data",
+        "BSR",
+        "BSDS500",
+        "data",
+        "groundTruth",
+        "test"
+    )
+)
+
+SEG_PATH_VAL = os.path.abspath(
+    os.path.join(
+        os.path.dirname(os.getcwd()),
+        "data",
+        "BSR",
+        "BSDS500",
+        "data",
+        "groundTruth",
+        "val"
     )
 )
 
