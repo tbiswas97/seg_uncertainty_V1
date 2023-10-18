@@ -75,13 +75,40 @@ class SegmentationMap:
                 self.iid_idx = import_utils.IIDS.index(self.iid)
             except:
                 self.iid_idx = 0
-            self.jpg_path = os.path.abspath(
-                os.path.join(import_utils.JPG_PATH, self.iid + ".jpg")
-            )
-            self.seg_path = os.path.abspath(
-                os.path.join(import_utils.SEG_PATH, self.iid + ".mat")
-            )
-            self.im = import_utils.import_jpg(self.jpg_path)
+
+            try:
+                self.jpg_path = os.path.abspath(
+                    os.path.join(import_utils.JPG_PATH_TRAIN, self.iid + ".jpg")
+                )
+                flag = "train"
+                self.im = import_utils.import_jpg(self.jpg_path)
+            except:
+                try:
+                    self.jpg_path = os.path.abspath(
+                        os.path.join(import_utils.JPG_PATH_TEST, self.iid + ".jpg")
+                    )
+                    flag = "test"
+                    self.im = import_utils.import_jpg(self.jpg_path)
+                except:
+                    self.jpg_path = os.path.abspath(
+                        os.path.join(import_utils.JPG_PATH_VAL, self.iid + ".jpg")
+                    )
+                    flag = "val"
+                    self.im = import_utils.import_jpg(self.jpg_path)
+            
+            if flag=="train":
+                self.seg_path = os.path.abspath(
+                    os.path.join(import_utils.SEG_PATH_TRAIN, self.iid + ".mat")
+                    )
+            elif flag=="test":
+                self.seg_path = os.path.abspath(
+                    os.path.join(import_utils.SEG_PATH_TEST, self.iid + ".mat")
+                    )
+            elif flag=="val":
+                self.seg_path = os.path.abspath(
+                    os.path.join(import_utils.SEG_PATH_VAL, self.iid + ".mat")
+                    )
+
             self.gts = import_utils.load_bsd_mat(self.seg_path)
             self.model_res = {}
 
@@ -229,9 +256,10 @@ class SegmentationMap:
 
                     if binning == True:
                         smap = tb._bin(smap, binsize=(ny // _Ny, nx // _Nx))
-                        assert ny // _Ny == nx // _Nx
 
-                        m = ny // _Ny
+                        assert Ny // ny == Nx // nx
+
+                        m = Ny // ny
                         smap = smap.repeat(m, 0).repeat(m, 1)
 
                     else:
@@ -431,4 +459,3 @@ class SegmentationMap:
                 maps = self.c_seg_maps
             else:
                 maps = self.seg_maps
-            tb.disp(self.primary_seg_map, scale=(2, 2), marker=np_coords)
