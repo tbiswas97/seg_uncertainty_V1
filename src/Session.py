@@ -5,6 +5,7 @@ import numpy as np
 import os
 from itertools import combinations
 import pandas as pd
+from collections import Counter
 
 # best probes for Neuropixel data
 DEFAULT_PROBES = [1, 3, 4]
@@ -267,7 +268,6 @@ class Session:
         origin = [0, 0]
 
         d["img_idx"] = [im] * len(pairs)
-        d["n_pairs"] = [len(pairs)] * len(pairs)
         d["pairs"] = pairs
         d["neuron1"] = [pair[0] for pair in pairs]
         d["neuron1_distance_from_origin"] = [
@@ -300,6 +300,10 @@ class Session:
         ] = 2
         df.loc[df.pair_orientation == 1, "pair_orientation"] = "centered"
         df.loc[df.pair_orientation == 2, "pair_orientation"] = "mixed"
+
+        counts = Counter(df.img_idx)
+        n_pairs = [counts[num] for num in df.img_idx]
+        df.insert(1,"n_pairs",n_pairs)
 
         return df.loc[df.pair_orientation != 0]
 
