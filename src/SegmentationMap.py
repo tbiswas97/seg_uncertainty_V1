@@ -68,6 +68,7 @@ class SegmentationMap:
                 (array_idx, array)
             'BSD' : if mode is 'BSD' _in should be a str corresponding to the BSD image ID
         """
+        self.gs_im = None
         if mode == "BSD":
             assert type(_in) == str
             self.iid = _in  # image id in BSDS500
@@ -171,6 +172,12 @@ class SegmentationMap:
 
         return a + b
 
+    def make_grayscale(self,im):
+        out = tb.rgb2gray(im)
+        self.gs_im = out
+
+        return out
+
     def fit_model(
         self,
         model="ac",
@@ -180,6 +187,8 @@ class SegmentationMap:
         layer_stop=16,
         layer_step=4,
         binning=True,
+        use_crop=True,
+        use_grayscale=False
     ):
         """
         Runs perceptual segmentation model on self.im
@@ -216,20 +225,31 @@ class SegmentationMap:
 
         self.model_components = n_components
 
+        if use_crop:
+            if not self.cropped:
+                raise("Use crop method before calling with use_crop=True")
+            else: 
+                model_im = self.c_im
+        else:
+            model_im = self.im
+        
+        if use_grayscale:
+            model_im = self.make_grayscale(model_im)
+
         # run model 'a'
         if "a" in model:
             self.model_res["a"] = seg._fit_model(
-                self.im, model_type="a", n_components=n_components
+                model_im, model_type="a", n_components=n_components
             )
         # run model 'b'
         if "b" in model:
             self.model_res["b"] = seg._fit_model(
-                self.im, model_type="b", n_components=n_components
+                model_im, model_type="b", n_components=n_components
             )
         # run model 'c'
         if "c" in model:
             self.model_res["c"] = seg._fit_model(
-                self.im, model_type="c", n_components=n_components
+                model_im, model_type="c", n_components=n_components
             )
         d = self.model_res
 
@@ -270,6 +290,9 @@ class SegmentationMap:
                             smap = smap.repeat(m, 0).repeat(m, 1)
 
                     self.seg_maps[key][smm.n_components].append(smap)
+
+            if use_crop:
+                self.c_seg_maps=self.seg_maps
 
         return None
 
