@@ -174,6 +174,7 @@ class SegmentationMap:
 
     def make_grayscale(self,im):
         out = tb.rgb2gray(im)
+        out = tb.norm_im(out)
         self.gs_im = out
 
         return out
