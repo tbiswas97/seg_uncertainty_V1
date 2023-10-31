@@ -70,7 +70,7 @@ class SegmentationMap:
         """
         self.gs_im = None
         if mode == "BSD":
-            assert type(_in) == str
+            assert (type(_in) == str or type(_in) == np.str_)
             self.iid = _in  # image id in BSDS500
             try:
                 self.iid_idx = import_utils.IIDS.index(self.iid)
@@ -187,8 +187,8 @@ class SegmentationMap:
         layer_start=0,
         layer_stop=16,
         layer_step=4,
-        binning=True,
-        use_crop=True,
+        binning=False,
+        use_crop=False,
         use_grayscale=False
     ):
         """
@@ -236,6 +236,7 @@ class SegmentationMap:
         
         if use_grayscale:
             model_im = self.make_grayscale(model_im)
+            model_im = import_utils.norm_im(model_im)
 
         # run model 'a'
         if "a" in model:
@@ -354,9 +355,12 @@ class SegmentationMap:
                 maps = self.c_gts
             else:
                 maps = self.gts
-            if n_components is not None:
-                idx = self.users_d[n_components][0]
-                self.primary_seg_map = maps[idx]
+            if type(gt)==int:
+                self.primary_seg_map=maps[gt]
+            elif type(gt)==bool:
+                if n_components is not None:
+                    idx = self.users_d[n_components][0]
+                    self.primary_seg_map = maps[idx]
         else:
             if self.cropped:
                 maps = self.c_seg_maps
