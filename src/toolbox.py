@@ -1307,6 +1307,13 @@ def crop(im, spec=None, size=(256, 256), center=True):
 
     return cropped
 
+def transform_coord_system_mpl(offset,size=(256,256)):
+    i,j = offset
+    transform = lambda x,y: tuple(transform_coord_system((-y,x),size=size))
+
+    out = transform(i,j)
+    
+    return out
 
 def transform_coord_system(offset, size=(256, 256), origin="center"):
     """
@@ -1339,9 +1346,10 @@ def transform_coord_system(offset, size=(256, 256), origin="center"):
 
 
 def get_coord_segment(coord, segmap, origin="center"):
+    coord = [int(item) for item in coord]
     ny, nx = coord
     try:
-        return segmap[int(ny), int(nx)]
+        return segmap[ny, nx]
     except IndexError:
         print("Probe is outside of image area")
 
