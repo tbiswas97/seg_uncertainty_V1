@@ -1476,6 +1476,28 @@ def pearson_r(x, y, invalid_value=np.nan):
         return numerator / (denominator_x**0.5 * denominator_y**0.5)
 
 
+def nan_softmax(x):
+    """
+    Computes the softmax function (see scipy.special.softmax)
+    Works with a vector that includes np.nan values
+    """
+    not_nan = (x==x)
+    x_nn = x[not_nan] #x not nan
+    x_n = x[~not_nan] #x nan
+    #if all values are nan, max weight is assigned to the first element
+    if len(x_nn)==0: 
+        x_n[0] = 1
+        z = np.array([])
+    #else calculate the softmax for non-nan values
+    else:
+        z = spec.softmax(x_nn)
+    #concatenate the softmax values with the nan values
+    out = np.concatenate([z,x_n],axis=0)
+
+    assert x.shape == out.shape
+
+    return out
+
 def mean_match(data1, data2, nboot, nbin):
 
 
@@ -1529,3 +1551,4 @@ def mean_match(data1, data2, nboot, nbin):
     }
 
     return d
+
