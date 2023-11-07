@@ -322,6 +322,45 @@ class Session:
         return df
 
     def get_neuron_info(self):
+        """
+        Outputs a dataframe with positional and index information for all center and off_center neurons  
+
+        Parameters:
+        ----------------
+        self : Session object
+
+        Returns:
+        ----------------
+        DataFrame with columns:
+            DataFrame.index : int 
+                a standard index for all rows 
+            index : int
+                The index of the neuron in the Session.df dataframe
+            neuron : int 
+                The index of the neuron in the experiment structure 
+            xy_coord : list, float
+                A 2-element list of coordinates with the origin defined in the center of the image
+            pos : str
+                states whether the neuron is considered "center" or "off_center"
+            x : float 
+                The first element of xy_coord
+            y : float 
+                The second element of xy_coord
+            x_np : int 
+                The first element of xy_coord with the origin defined in the upper left corner of the image
+                (numpy array standard)
+            y_np : int 
+                The second element of xy_coord with the origin defined in the upper left corner of the image
+                (numpy array standard)
+            x_mpl : int 
+                The first element of xy_coord with the origin defined in the lower left corner of the image
+                (matplotlib plot standard)
+            y_mpl : int 
+                The second element of xy_coord with the origin defined in the lower left corner of the image
+                (matplotlib plot standard)
+
+        
+        """
         df = self.df
         neuron1 = df.loc[:, ["neuron1", "neuron1_xy_coord", "neuron1_pos"]].rename(
             {"neuron1": "neuron", "neuron1_xy_coord": "xy_coord", "neuron1_pos": "pos"},
@@ -333,7 +372,26 @@ class Session:
         )
 
         neurons=pd.concat([neuron1,neuron2],ignore_index=True,axis=0)
-        out = neurons.drop_duplicates(["neuron"]).reset_index()
+        squeeze = neurons.drop_duplicates(["neuron"]).reset_index()
+
+        coords_df = pd.DataFrame(squeeze.xy_coord.to_list(),columns=["x","y"])
+
+        tx_np = tb.slicer(lambda x:tb.transform_coord_system((x,0))[1])
+        ty_np = tb.slicer(lambda y:tb.transform_coord_system((0,y))[0])
+
+        tx_mpl = tb.slicer(lambda x:tb.transform_coord_system_mpl((x,0))[0])
+        ty_mpl = tb.slicer(lambda y:tb.transform_coord_system_mpl((0,y))[1])
+
+        
+        out = pd.concat([squeeze,coords_df],axis=1)
+
+        out["x_np"] = tx_np(out["x"])
+        out["y_np"] = ty_np(out["y"])
+
+        out["x_mpl"] = tx_mpl(out["x"])
+        out["y_mpl"] = ty_mpl(out["y"])
+
+        self.neuron_df = out
 
         return out
 
