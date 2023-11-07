@@ -5,6 +5,7 @@ import numpy as np
 import os
 from itertools import combinations
 import pandas as pd
+from scipy.spatial import KDTree
 from collections import Counter
 
 # best probes for Neuropixel data
@@ -42,7 +43,10 @@ class Session:
             temp = import_utils._load(mat)
         else:
             temp = import_utils.loadmat_h5(mat)
+        #user defined attributes should go below line 46
         self.__dict__ = temp["Session"]
+        self.df = None
+        self.neuron_df = None
         self.d = temp["Session"]
         self.fields = list(self.d.keys())
         self._type = _type
@@ -358,8 +362,6 @@ class Session:
             y_mpl : int 
                 The second element of xy_coord with the origin defined in the lower left corner of the image
                 (matplotlib plot standard)
-
-        
         """
         df = self.df
         neuron1 = df.loc[:, ["neuron1", "neuron1_xy_coord", "neuron1_pos"]].rename(
@@ -616,3 +618,80 @@ class Session:
             "coords": neuron_coords,
         }
         return d
+
+    #PSEUDONEURON FUNCTIONS FOR PSEUDOSEGMENTATION
+
+    def get_neuron_pos_KDTree(self,location="center",coord_type="mpl"):
+        """"
+        Returns a KDTree containing the coordinates of specified neurons:
+
+        Parameters:
+        ------------
+        location : str
+            Valid values are "center", "off_center", None
+            if None the coordinates of ALL neurons are used 
+        coord_type : str 
+            "mpl", "np" or None 
+            if None the coordinates are with origin as center
+    
+        Retruns:
+        --------------------
+        self.tree : KDTree
+            see scipy.spatial.KDTree
+        
+        """
+        xy_strs = ["x", "y"]
+
+        if coord_type is not None:
+            xy_strs = [s + "_" + coord_type for s in xy_strs]
+
+        if self.neuron_df is not None: 
+            ndf = self.neuron_df
+        else:
+            ndf = self.get_neuron_info()
+        
+        if location is not None:
+            coords = ndf.loc[ndf.pos==location,[xy_strs[0],xy_strs[1]]].to_numpy()
+        else:
+            coords = ndf.loc[:,["x_mpl","y_mpl"]].to_numpy()
+
+        tree = KDTree(coords)
+
+        self.KDTree = tree
+
+        return tree
+    
+    def get_pseudo_grid(self,center_window=None,imsize=256,gridsize=15):
+        """
+        Returns the coordinates of a grid of pseudo-neurons across the center of the image
+        (defined by center_window)
+
+        Parameters:
+        ----------
+        center_window : int, default None
+            since pseudoneurons can only be defined in the center, the length of the center window
+        imsize : int, default 256
+            the total size of the image to pseudosegment
+        gridsize : int, default 15
+            the resolution of the pseudogrid will be gridsize x gridsize
+
+        Returns: 
+        ---------
+        coords : array of shape (gridsize x gridsize,2)
+        """
+        if center_window is not None:
+            center_window = center_window
+        else: 
+            center_window = self.neuron_exclusion_parameters["thresh"]
+        
+        origin = imsize//2
+        s = origin-center_window//2
+        S = origin+center_window//2
+        x = np.linspace(s,S,gridsize,dtype="int")
+        grid_coords = np.asarray(np.meshgrid(x,x)).reshape((2,-1)).T  
+        
+        return grid_coords
+
+
+
+
