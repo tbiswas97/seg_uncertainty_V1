@@ -7,6 +7,9 @@ from itertools import combinations
 import pandas as pd
 from scipy.spatial import KDTree
 from collections import Counter
+from vseg.src.vseg import SegmentationMap as PseudoSegmentationMap
+from numpy.random import choice as choose
+import torch
 
 # best probes for Neuropixel data
 DEFAULT_PROBES = [1, 3, 4]
@@ -621,7 +624,7 @@ class Session:
 
     #PSEUDONEURON FUNCTIONS FOR PSEUDOSEGMENTATION
 
-    def get_neuron_pos_KDTree(self,location="center",coord_type="mpl"):
+    def _get_neuron_pos_KDTree(self,location="center",coord_type="mpl"):
         """"
         Returns a KDTree containing the coordinates of specified neurons:
 
@@ -652,6 +655,11 @@ class Session:
         
         if location is not None:
             coords = ndf.loc[ndf.pos==location,[xy_strs[0],xy_strs[1]]].to_numpy()
+            
+            ndf_tree = ndf.loc[ndf.pos==location]
+            ndf_tree.insert(1,"mapping_index",list(range(len(ndf_tree))))
+
+            self.neuron_df = ndf_tree
         else:
             coords = ndf.loc[:,["x_mpl","y_mpl"]].to_numpy()
 
@@ -661,7 +669,7 @@ class Session:
 
         return tree
     
-    def get_pseudo_grid(self,center_window=None,imsize=256,gridsize=15):
+    def _get_pseudo_grid(self,center_window=None,imsize=256,gridsize=15):
         """
         Returns the coordinates of a grid of pseudo-neurons across the center of the image
         (defined by center_window)
@@ -690,7 +698,252 @@ class Session:
         x = np.linspace(s,S,gridsize,dtype="int")
         grid_coords = np.asarray(np.meshgrid(x,x)).reshape((2,-1)).T  
         
+        self.pseudogrid_coords = grid_coords 
+        self.pseudogrid_size = gridsize
+
         return grid_coords
+
+    def _get_pseudoneuron_sampling_weights(self,param,method="relu"):
+        """
+        Returns a sampling weight per neuron as a function of distance
+
+        Parameters:
+        ----------
+        method : str, default "relu"
+            Options are: 
+                -relu : 
+                -gaussian2d
+                -softmax
+        param : float 
+            Has different meanings depending on the method used: 
+                -relu : a distance threshold, neurons past this threshold have sampling weights of 0
+                    other neurons have sampling weights that are scaled linearly according to distance
+                -softmax : temperature 
+                -gaussian2d : covariance 
+            
+        Returns: 
+        ----------
+        weights : array, float 
+            shows sampling weights from [0,1], has shape (gridsize x gridsize, center_neurons)
+        ncd : array, float 
+            shows (max(distance) - distance) for each neuron, has shape (gridsize x gridsize, center_neurons) 
+        distance : array, float 
+            shows distance for each neuron, has shape (gridsize x gridsize, center_neurons) 
+        nn_info[1] : array, int 
+            shows index of neurons in ascending order of distance, has shape (center_neurons)
+
+            
+        """
+        if method=="relu":
+            tree = self.KDTree        
+            grid = self.pseudogrid_coords
+            #nearest neighbor information
+            nn_info = tree.query(grid,k=len(tree.data))
+            distances = nn_info[0]
+            
+            close_distances = distances.copy()
+            close_distances[close_distances>param] = np.nan
+            
+            norm_close_distances = np.nanmax(close_distances,axis=1)[...,np.newaxis] - close_distances
+            ncd = norm_close_distances
+            weights = ncd.copy()
+            
+            sncd = np.nansum(ncd,axis=1)
+            zero_vector_idxs = (sncd==0)
+            zvs = zero_vector_idxs
+            
+            weights[~zvs] = (ncd/sncd[...,np.newaxis])[~zvs]
+            
+            
+            if len(weights[zvs]) == 0:
+                pass
+            else:
+                weights[zvs] = np.apply_along_axis(tb.nan_softmax,1,ncd[zvs])
+            
+            w = weights
+            
+            w[~(w==w)] = 0 
+            
+            assert w.shape == distances.shape
+            
+            return weights, ncd, distances, nn_info[1]
+    
+    def _get_pseudoneuron_sampling_grid(self,weights):
+        """
+        Generates an instance of the pseudoneuron grid 
+
+        Parameters:
+        -------------
+        weights : array, float 
+            from self._get_pseudoneuron_sampling_weights
+        
+        Returns: 
+        ---------
+        pseudoneurons_grid : array, int 
+            an array of shape (gridsize,gridsize) in which each element is assigned a neuron
+        """
+        #generate a LUT to map from the KDtree to actual neuron idxs
+
+        weights = weights 
+        
+        pseudoneurons = np.asarray([
+            choose(np.asarray(list(range(len(self.KDTree.data))),dtype="int"),
+                p=weights[idx])
+            for idx in range(weights.shape[0])
+            ]
+        )
+
+        pseudoneurons_grid = pseudoneurons.reshape((self.gridsize,self.gridsize))
+
+        self.pseudoneurons_grid = pseudoneurons_grid
+
+        return pseudoneurons_grid
+
+    def _lookup_delta_rsc(self,image_idx,neuron1,neuron2):
+        if self.df is not None: 
+            if 'delta_rsc' in self.df.columns:
+                df = self.df
+            else:
+                self.df['delta_rsc'] = self.df['rsc_small'] - self.df['rsc_large']
+
+            df = df.loc[:,["delta_rsc","neuron1","neuron2","img_idx"]]
+        else: 
+            self.df = self.get_df()
+            self.df['delta_rsc'] = self.df['rsc_small'] - self.df['rsc_large']
+            df = self.df
+            df = df.loc[:,["delta_rsc","neuron1","neuron2","img_idx"]]
+
+        delta_rsc = df.loc[
+            (df.neuron1==neuron1)&
+            (df.neuron2==neuron2)&
+            (df.img_idx==image_idx),
+            ["delta_rsc"]
+        ]
+
+        if len(delta_rsc) == 0:
+            return np.nan
+        else:
+            return delta_rsc.values.squeeze()
+
+    def _get_pseudoneuron_responses(
+            self,
+            img_idx,
+            center_window=None,
+            im_size=256,
+            gridsize=15,
+            activation_param=15,
+            activation_method="relu",
+            pseudoneurons_list=None):
+        #use the PseudoSegmentationMap class (check imports) to generate a valid list of pairs
+        if pseudoneurons_list is not None:
+            pseudoneurons_list = pseudoneurons_list
+        else:
+            self.get_neuron_info()
+            self._get_neuron_pos_KDTree()
+            self._get_pseudo_grid(
+                center_window=center_window,
+                imsize=im_size,
+                gridsize=gridsize
+            )
+
+            self._get_pseudoneuron_sampling_weights(param=activation_param, method=activation_method)
+
+            self._get_pseudoneuron_sampling_grid(self.pseudoneuron_sampling_weights)
+
+            pseudoneurons_list = np.ravel(self.pseudoneurons_grid)
+            
+        seg_map = PseudoSegmentationMap(2,self.pseudogrid_size,device="cpu")
+        seg_map_pairs = [tuple(pair) for pair in seg_map.px_pairs.tolist()]
+        
+        pair_lut = {k:v for k,v in zip(seg_map_pairs,range(len(seg_map_pairs)))} 
+        seg_map_pair_idxs = [pair_lut[pair] for pair in seg_map_pairs]
+
+        neuron_lut = {k:v for k,v in zip(list(self.neuron_df.mapping),list(self.neuron_df.neuron))}
+
+        delta_rscs = np.asarray(
+            [
+                self._lookup_delta_rsc(
+                    img_idx,
+                    neuron_lut[
+                        pseudoneurons_list[pair[0]]
+                    ],
+                    neuron_lut[
+                        pseudoneurons_list[pair[1]]
+                    ])
+                        for pair in seg_map_pairs        
+            ]
+        )
+
+        R = delta_rscs
+
+        d = {
+            "px_pair":seg_map_pairs,
+            "px_pair_select_idx":seg_map_pair_idxs,
+            "delta_rsc":R
+        }
+
+        Rdf = pd.DataFrame.from_dict(d)
+
+        responses = Rdf.dropna().copy()
+        responses["responses"] = 0 
+        responses.loc[responses.delta_rsc>0,"responses"]=1
+
+        self.responses_df = responses
+
+        return self.responses_df.responses
+
+    #def get_pseudoneuron_response_table(
+        #self,
+        #n_trials,
+        #img_idx,
+        #center_window=None,
+        #im_size=256,
+        #gridsize=15,
+        #activation_param=15,
+        #activation_method="relu",
+        #pseudoneurons_list=None
+    #):
+        #responses = []
+        #for i in range(n_trials):
+
+    #def pseudosegment(
+            #self,
+            #image_idx,
+            #k,
+            #center_window=None,
+            #im_size=None,
+            #gridsize=15,
+            #activation_param=15,
+            #activation_method="relu",
+            #lapreg = 5,
+            #lr = 1e1,
+            #max_iter = 50000,
+            #tol = 1e-6,
+            #sav_iter=True
+    #):
+        #"""
+        #Performs a pseudosegmentation using the visual segmentation protocol: 
+
+        #Parameters:
+        #-----------
+        #image_idx : int
+            #From the session, the index of the image to segment 
+        #center_window : optional, default None
+            #if None, uses the neuron exclusion threshold radius
+        #im_size : optional default, 256
+            #if None, uses 256
+        #gridsize : int
+            #the gridsize to use for pseudosegmentation 
+        #activation_param : optional
+            #same as param in self._get_pseudoneuron_sampling_weights
+        #activation_method : option
+            #same as method in self._get_pseudoneuron_sampling_weights
+
+        #Returns:
+        #---------
+
+        #"""
+        #pass
 
 
 
