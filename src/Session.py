@@ -766,7 +766,9 @@ class Session:
             
             assert w.shape == distances.shape
             
-            return weights, ncd, distances, nn_info[1]
+        self.pseudoneuron_sampling_weights = weights
+
+        return weights, ncd, distances, nn_info[1]
     
     def _get_pseudoneuron_sampling_grid(self,weights):
         """
@@ -793,7 +795,7 @@ class Session:
             ]
         )
 
-        pseudoneurons_grid = pseudoneurons.reshape((self.gridsize,self.gridsize))
+        pseudoneurons_grid = pseudoneurons.reshape((self.pseudogrid_size,self.pseudogrid_size))
 
         self.pseudoneurons_grid = pseudoneurons_grid
 
@@ -805,13 +807,12 @@ class Session:
                 df = self.df
             else:
                 self.df['delta_rsc'] = self.df['rsc_small'] - self.df['rsc_large']
-
-            df = df.loc[:,["delta_rsc","neuron1","neuron2","img_idx"]]
         else: 
             self.df = self.get_df()
             self.df['delta_rsc'] = self.df['rsc_small'] - self.df['rsc_large']
             df = self.df
-            df = df.loc[:,["delta_rsc","neuron1","neuron2","img_idx"]]
+
+        df = df.loc[:,["delta_rsc","neuron1","neuron2","img_idx"]]
 
         delta_rsc = df.loc[
             (df.neuron1==neuron1)&
@@ -853,12 +854,10 @@ class Session:
             pseudoneurons_list = np.ravel(self.pseudoneurons_grid)
             
         seg_map = PseudoSegmentationMap(2,self.pseudogrid_size,device="cpu")
+        self._PseudoSegmentationMap_indices_object = seg_map
         seg_map_pairs = [tuple(pair) for pair in seg_map.px_pairs.tolist()]
-        
-        pair_lut = {k:v for k,v in zip(seg_map_pairs,range(len(seg_map_pairs)))} 
-        seg_map_pair_idxs = [pair_lut[pair] for pair in seg_map_pairs]
 
-        neuron_lut = {k:v for k,v in zip(list(self.neuron_df.mapping),list(self.neuron_df.neuron))}
+        neuron_lut = {k:v for k,v in zip(list(self.neuron_df.mapping_index),list(self.neuron_df.neuron))}
 
         delta_rscs = np.asarray(
             [
@@ -874,37 +873,33 @@ class Session:
             ]
         )
 
-        R = delta_rscs
+        R = np.zeros(delta_rscs.shape)
+        R[delta_rscs>0] = 1
 
-        d = {
-            "px_pair":seg_map_pairs,
-            "px_pair_select_idx":seg_map_pair_idxs,
-            "delta_rsc":R
+        return R
+
+    def get_pseudoneuron_response_table(
+        self,
+        n_trials,
+        img_idx,
+        center_window=None,
+        im_size=256,
+        gridsize=15,
+        activation_param=15,
+        activation_method="relu",
+        pseudoneurons_list=None
+    ):
+        labels = ["responses_{}".format(i) for i in range(n_trials)]
+        responses = []
+        for i in range(n_trials):
+            responses.append(self._get_pseudoneuron_responses)
+        response_dict = {
+            k:v for k,v in zip(labels,responses)
         }
 
-        Rdf = pd.DataFrame.from_dict(d)
+        df = pd.DataFrame.from_dict(response_dict)
 
-        responses = Rdf.dropna().copy()
-        responses["responses"] = 0 
-        responses.loc[responses.delta_rsc>0,"responses"]=1
-
-        self.responses_df = responses
-
-        return self.responses_df.responses
-
-    #def get_pseudoneuron_response_table(
-        #self,
-        #n_trials,
-        #img_idx,
-        #center_window=None,
-        #im_size=256,
-        #gridsize=15,
-        #activation_param=15,
-        #activation_method="relu",
-        #pseudoneurons_list=None
-    #):
-        #responses = []
-        #for i in range(n_trials):
+        self.responses_df = pd.concat([self.responses_df,df],axis=1)
 
     #def pseudosegment(
             #self,
