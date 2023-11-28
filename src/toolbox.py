@@ -1267,7 +1267,7 @@ def crop_RGB(im, spec=None, size=(256, 256), center=True, RGB=True):
             Mx = im.shape[1] - mx
             cropped = im[my:My, mx:Mx, :]
         else:
-            cropped = im[0 : size[0], 0 : size[2], :]
+            cropped = im[0 : size[0], 0 : size[1], :]
 
     return cropped
 
