@@ -148,6 +148,7 @@ class SegmentationMap:
             self.cropped = False
             self.session_loaded = False
             self.primary_seg_map = None
+            self.gts = None
         else:
             print("Invalid initiation")
 
@@ -298,7 +299,7 @@ class SegmentationMap:
 
         return None
 
-    def crop(self, spec={"y": (23, 278), "x": (23, 278)}, size=(256, 256), center=True):
+    def crop(self, spec={"y": (23, 278), "x": (23, 278)}, size=(256, 256), center=True,RGB=True):
         """
         Crops an image, parameters specify different methods of cropping, based on toolbox.py -> crop
 
@@ -318,8 +319,12 @@ class SegmentationMap:
             Determines whether size parameter is calculated from the center (True) or from the origin
 
         """
-        self.c_im = tb.crop_RGB(self.im, spec, size, center)
-        self.c_gts = np.asarray(tb.crop(self.gts, spec, size, center))
+        if RGB:
+            self.c_im = tb.crop_RGB(self.im, spec, size, center)
+        else:
+            self.c_im = tb.crop(self.im, spec, size, center)
+        if self.gts is not None:
+            self.c_gts = np.asarray(tb.crop(self.gts, spec, size, center))
         self.c_seg_maps = dict.fromkeys(self.seg_maps)
         d = self.c_seg_maps
         for key in d.keys():
