@@ -236,7 +236,7 @@ class Session:
                     np.asarray(range(self.exp_info["n_neurons"])),
                     np.argmax(self.MM_small, axis=1),
                 ][self.neuron_locations["off_center"]]
-                > 1
+                > mr_thresh
             ]
         else:
             self.neuron_locations_mr = None
@@ -630,7 +630,7 @@ class Session:
     #PSEUDONEURON FUNCTIONS FOR PSEUDOSEGMENTATION
 
     
-    def _get_neuron_pos_KDTree(self,location="center",coord_type="mpl"):
+    def _get_neuron_pos_KDTree(self,location="center",coord_type="np"):
         """"
         Returns a KDTree containing the coordinates of specified neurons:
 
@@ -667,7 +667,7 @@ class Session:
 
             self.neuron_df = ndf_tree
         else:
-            coords = ndf.loc[:,["x_mpl","y_mpl"]].to_numpy()
+            coords = ndf.loc[:,[xy_strs[0],xy_strs[1]]].to_numpy()
 
         tree = KDTree(coords)
 
@@ -771,8 +771,14 @@ class Session:
             w[~(w==w)] = 0 
             
             assert w.shape == distances.shape
+
+            sorted_neurons = nn_info[1]
+            unsorted_idxs = sorted_neurons.argsort(axis=1)
+            unsorted_neuron_weights = np.take_along_axis(weights,unsorted_idxs,1)
+            unw = unsorted_neuron_weights
             
-        self.pseudoneuron_sampling_weights = weights
+        self.sorted_pseudoneuron_sampling_weights = weights
+        self.unsorted_pseudoneuron_sampling_weights = unw
 
         return weights, ncd, distances, nn_info[1]
     
@@ -783,14 +789,13 @@ class Session:
         Parameters:
         -------------
         weights : array, float 
-            from self._get_pseudoneuron_sampling_weights
+            from self._get_pseudoneuron_sampling_weights, assumes weights are unsorted
         
         Returns: 
         ---------
         pseudoneurons_grid : array, int 
             an array of shape (gridsize,gridsize) in which each element is assigned a neuron
         """
-        #generate a LUT to map from the KDtree to actual neuron idxs
 
         weights = weights 
         
@@ -807,18 +812,50 @@ class Session:
 
         return pseudoneurons_grid
 
-    def _lookup_delta_rsc(self,image_idx,neuron1,neuron2):
+    def _lookup_delta_rsc(self,image_idx,neuron1,neuron2,same_value=1):
+        """
+        Looks up the delta rsc for a given image and 2 given neurons
+
+        Parameters:
+        --------------------
+        image_idx : int 
+            which image to use 
+        
+        neuron1, neuron2 : int 
+            indices of neurons to use 
+        
+        same_values : float, default 1
+            value to return when neuron1==neuron2
+            another option is np.nan if only different neuron repsonses should be considered
+
+        Returns:
+        --------------------
+        delta_rsc : float
+
+        """
         if self.neuron_delta_rsc_lookup is not None: 
             self.df = self.get_df()
         
+        #get.df() function creates self.neuron_delta_rsc lookup attribute
         df = self.neuron_delta_rsc_lookup
+        if neuron1==neuron2:
+            return same_value
+        else:
+            #try except makes function agnostic to order of input 
+            try:
+                return df.loc[image_idx].at[neuron1,neuron2]
+            except KeyError:
+                try:
+                    return df.loc[image_idx].at[neuron2,neuron1]
+                except KeyError:
+                    return np.nan
 
-        try:
-            return df.loc[0].at[neuron1,neuron2]
-        except KeyError:
-            return np.nan
+            
 
     def _get_segmap_pairs(self):
+        """
+        Gets segmap pairs and pair indexes from PseudoSegmentationMap object (check imports)
+        """
         seg_map = PseudoSegmentationMap(2,self.pseudogrid_size,device="cpu")
         seg_map_pairs = [tuple(pair) for pair in seg_map.px_pairs.tolist()]
         pair_lut = {k:v for k,v in zip(seg_map_pairs,range(len(seg_map_pairs)))}
@@ -830,6 +867,7 @@ class Session:
         }
 
         self.Rdf_idx = pd.DataFrame.from_dict(d)
+        self.PseudoSegmentationMap = seg_map
 
         return seg_map_pairs
 
@@ -842,7 +880,32 @@ class Session:
             activation_param=15,
             activation_method="relu",
             pseudoneurons_list=None):
-        #use the PseudoSegmentationMap class (check imports) to generate a valid list of pairs
+        """
+        Gets pseudoneuron responses for all pairs in a given pseudogrid
+
+        Parameters:
+        ----------------
+        img_idx : int
+            Index of the image to retrieve responses at 
+        center_window : int 
+            Diameter of the center window (in pixels)
+        im_size : int 
+            Total size of input image 
+        gridsize : int 
+            Square root of number of total pseudoneurons 
+        activation_param : int 
+            Paramter used in neuron sampling 
+        activation_method : str
+            See _get_pseudoneuron_sampling_weights()
+        pseudoneurons_list : list
+            list of pseudoneuron neuron assignments 
+
+        Returns:
+        ----------
+        R : np.array
+            Vector of responses 
+
+        """
         if pseudoneurons_list is not None:
             pseudoneurons_list = pseudoneurons_list
         else:
@@ -858,7 +921,7 @@ class Session:
 
             self._get_pseudoneuron_sampling_weights(param=activation_param, method=activation_method)
 
-            self._get_pseudoneuron_sampling_grid(self.pseudoneuron_sampling_weights)
+            self._get_pseudoneuron_sampling_grid(self.unsorted_pseudoneuron_sampling_weights)
 
             pseudoneurons_list = np.ravel(self.pseudoneurons_grid)
 
@@ -878,13 +941,15 @@ class Session:
             ]
         )
 
+        #delta_rsc > 0 = 1
+        #delta_rsc < 0 = 0 
         R = np.zeros(delta_rscs.shape)
         R[delta_rscs!=delta_rscs] = np.nan
         R[delta_rscs>0] = 1
 
         return R
 
-    def get_pseudoneuron_response_table(
+    def _get_pseudoneuron_response_table(
         self,
         n_trials,
         img_idx,
@@ -894,6 +959,22 @@ class Session:
         activation_param=15,
         activation_method="relu",
     ):
+        """
+        Gets responses n_trials times 
+
+        Parameters: 
+        -----------
+        n_trials : number of trials to get pseudoneuron responses for 
+
+        See above for other params
+
+        Returns:
+        ----------
+        self.responses_df : pd.DataFrame
+            DataFrame of pseudoneuron responses, px pairs, and px_pair indexes
+
+
+        """
         labels = ["responses_{}".format(i) for i in range(n_trials)]
         responses = []
         for i in range(n_trials):
@@ -916,6 +997,142 @@ class Session:
         self.responses_df = pd.concat([self.Rdf_idx,Rdf],axis=1)
 
         return self.responses_df
+
+    def _compute_segmap_loss(
+            self,
+            n_seg,
+            n_grid,
+            tresp,
+            tpairs,
+            lap_reg=5,
+            lr=1e-1,
+            max_iter=50000,
+            tol=1e-6,
+            save_iter=True
+        ):
+        """
+        Computes the segmentation map from pseudoneuron responses
+
+        Parameters:
+        ------------
+        n_seg : int 
+            Number of segments to use in segmentation
+        n_grid : int 
+            Same as gridsize parameter
+        tresp : torch.tensor (dtype=torch.float64)
+            Tensor of responses 
+        tpairs : torch.tensor (dtype=torch.long)
+            Tensor of pair indexes
+        lap_reg : int 
+            Laplacian regularization paramter
+        lr : float 
+            Learning rate for visual segmentation algorithm
+        max_iter : int 
+            Maximum number of iterations to use 
+        tol : float 
+            The tolerance for a final computation of the segment assignemtns
+        save_iter : bool 
+            Whether to save values at every iteration
+        """
+        torch.manual_seed(10)
+        seg_map = self.PseudoSegmentationMap
+
+        inferred_proba_maps = seg_map.fit(
+            tresp,
+            tpairs,
+            lap_reg=lap_reg,
+            lr=lr,
+            max_iter=max_iter,
+            tol=tol,
+            save_iter=save_iter,
+        )
+
+        seg_proba_maps = (
+            inferred_proba_maps.reshape(n_seg, n_grid, n_grid).cpu().detach().numpy()
+        )
+
+        loss = np.zeros(len(seg_map.loss_iter))
+        for i in range(len(seg_map.loss_iter)):
+            loss[i] = seg_map.loss_iter[i].detach().numpy()
+
+        return seg_map, inferred_proba_maps, seg_proba_maps, loss
+        
+
+    def pseudosegment(
+            self,
+            img_idx,
+            n_seg=2,
+            sample=1,
+            n_trials=1,
+            center_window=None,
+            im_size=256,
+            gridsize=15,
+            activation_param=15,
+            activation_method="relu",
+            lap_reg=5,
+            lr=1e-1,
+            max_iter=50000,
+            tol=1e-6,
+            save_iter=True,
+            seed=None
+    ):
+        """
+        Pseudosegmentation function to call with image index
+
+        Parameters: 
+        ----------------
+        See _compute_segmap_loss for most 
+
+        img_idx : int 
+            Index of image to get repsonses from 
+        seed : np.random.rand
+            Random number to help function generate random output even with function caching
+        
+        """
+        self._get_pseudoneuron_response_table(
+            n_trials,
+            img_idx,
+            center_window=center_window,
+            im_size=im_size,
+            gridsize=gridsize,
+            activation_param=activation_param,
+            activation_method=activation_method
+        )
+
+        valid_responses = self.responses_df.dropna()
+        valid_responses = valid_responses.sample(frac=sample)
+        responses_arr = valid_responses.iloc[:,2:].to_numpy().T
+        responses_t = torch.tensor(responses_arr,dtype=torch.float64)
+
+        pairs_t = torch.tensor(
+            valid_responses.px_pair_select_idx.to_numpy(),dtype=torch.long)
+
+        
+        seg_map, inferred_proba_maps, seg_proba_maps, loss = self._compute_segmap_loss(
+            n_seg,
+            self.pseudogrid_size,
+            responses_t,
+            pairs_t,
+            lap_reg=lap_reg,
+            lr=lr,
+            max_iter=max_iter,
+            tol=tol,
+            save_iter=save_iter
+        )
+
+        d = {
+            "PseudoSegmentationMap":seg_map,
+            "inferred_proba_maps":inferred_proba_maps,
+            "seg_proba_maps":seg_proba_maps,
+            "loss":loss
+        }
+
+        return d 
+        
+
+
+
+
 
     #def pseudosegment(
             #self,
@@ -961,6 +1178,8 @@ import inspect
 for name,fn in inspect.getmembers(Session, inspect.isfunction):
     if name != "_get_pseudoneuron_sampling_grid":
         if name != "_get_pseudoneuron_responses":
-            setattr(Session,name,memoize(fn))
+            if name != "pseudosegment":
+                if name!= "_lookup_delta_rsc":
+                    setattr(Session,name,memoize(fn))
 
 
