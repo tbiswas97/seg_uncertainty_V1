@@ -48,8 +48,8 @@ elif EXP_NAME == "Sessions_NaturalEnsemble_136":
 
 
 
-
-def get_EXP_INFO(EXP_NAME):
+# Add filepaths for new experiments here: 
+def get_exp_info(EXP_NAME,index=None):
     """
     Use to extract Session information given EXP_NAME input.
     This is because different experiments are formatted differently.
@@ -90,6 +90,24 @@ def get_EXP_INFO(EXP_NAME):
             "SESSION_IMS" : SESSION_IMS
         }
 
+    elif EXP_NAME == "NN2015":
+        if index is not None:
+            idx = index
+            idx = str(idx).zfill(2)
+            SESSION_MAT_PATH = os.path.abspath(
+                os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, idx + ".mat")
+            )
+        else:
+            SESSION_MAT_PATH = None
+        SESSION_IMS = os.path.abspath(
+            os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + "_images.pkl")
+        )
+        d = {
+            "SESSION_MAT_PATH": SESSION_MAT_PATH,
+            "SESSION_IMS" : SESSION_IMS
+        }
+    else: 
+        print("INVALID NAME")
     return d
 
 
