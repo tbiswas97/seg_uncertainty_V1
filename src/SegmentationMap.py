@@ -34,6 +34,7 @@ class SegmentationMap:
     k : list of ints
         number of segments across users
     users_d : dict
+        key is n_components k and values are which users labeled for k components 
     model_components : list of ints
         initialized as same as k but eventually reflects the number of components in the segmentation model
     seg_maps : dict
@@ -175,7 +176,7 @@ class SegmentationMap:
 
     def make_grayscale(self,im):
         out = tb.rgb2gray(im)
-        out = tb.norm_im(out)
+        out = import_utils.norm_im(out)
         self.gs_im = out
 
         return out
@@ -208,6 +209,11 @@ class SegmentationMap:
             Maximum allowed number of components
         layer_start, layer_stop, layer_step : int
             layers will be assigned to the self.seg_maps variable according to indexes: [layer_start, layer_stop, layer_step]
+        binning : bool 
+            Determines whether output segmentation maps at shallow layers are artificially downsampled (binned)
+        use_crop : bool 
+            Determines whether to run the segmentation on the cropped image or the uncropped image
+        use_grayscale : Determines whether to run the segmentation on a grayscale image or the original image 
 
         Raises:
         ------
