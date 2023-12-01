@@ -1,6 +1,13 @@
 # Input 
 
 To adjust input settings modify filepaths in import_utils.py including: 
-- which IIDs are used in the experiment
-- path to experiment neural recording Sessions 
-- path to BSD500 
+
+`import_utils.py`
+EXP NAME (for organization purposes)
+- Create new folder matching EXP NAME in parent folder of src 
+- Images for the Session 
+- .mat data file for the session 
+
+`Session.py`
+
+
