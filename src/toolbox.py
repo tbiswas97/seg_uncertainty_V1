@@ -1342,7 +1342,12 @@ def transform_coord_system(offset, size=(256, 256), origin="center"):
     query_y = og[0] + offset[1]
     query_x = og[1] + offset[0]
 
-    return np.array([int(query_y), int(query_x)])
+    check_nans = np.array([query_x==query_x, query_y==query_y])
+
+    if not check_nans.any():
+        return np.nan
+    else: 
+        return np.array([int(query_y), int(query_x)])
 
 
 def get_coord_segment(coord, segmap, origin="center"):
@@ -1511,7 +1516,7 @@ def mean_match(data1, data2, nboot, nbin):
     samples_data1 = []
     samples_data2 = []
 
-    for i in range(nbin + 1):
+    for i in range(nbin):
         bin_min = new_edges[i]
         bin_max = new_edges[i + 1]
 
@@ -1520,23 +1525,24 @@ def mean_match(data1, data2, nboot, nbin):
 
         num_samples = min((len(bin_idx_data_1), len(bin_idx_data_2)))
 
-        def return_n_samples(x,**kwargs):
-            return x[:num_samples]
-
         if num_samples > 0:
             if len(bin_idx_data_1) == 1:
                 idx1_samples = np.ones((nboot, 1)) * bin_idx_data_1
             else:
-                idx1_samples = bootstrap(
-                    (bin_idx_data_1,), return_n_samples, n_resamples=nboot
-                ).bootstrap_distribution
+                idx1_samples = np.random.choice(
+                    bin_idx_data_1,
+                    size=(nboot,num_samples),
+                    replace=True
+                )
 
             if len(bin_idx_data_2) == 1:
                 idx2_samples = np.ones((nboot, 1)) * bin_idx_data_2
             else:
-                idx2_samples = bootstrap(
-                    (bin_idx_data_2,), x, n_resamples=nboot
-                ).bootstrap_distribution
+                idx2_samples = np.random.choice(
+                    bin_idx_data_2,
+                    size=(nboot,num_samples),
+                    replace=True
+                )
 
             samples_data1.append(idx1_samples)
             samples_data2.append(idx2_samples)
