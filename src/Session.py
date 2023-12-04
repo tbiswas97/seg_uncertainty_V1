@@ -52,8 +52,8 @@ class Session:
             except:
                 temp = import_utils.loadmat(mat)
 
-        #user defined attributes should go below line 46
-        if type(temp)==dict:
+        # user defined attributes should go below line 46
+        if type(temp) == dict:
             if "Session" in temp.keys():
                 self.__dict__ = temp["Session"]
                 self.d = temp["Session"]
@@ -74,7 +74,7 @@ class Session:
             if neuron_exclusion:
                 self.neuron_exclusion()
             else:
-                self._neuron_exclusion=False
+                self._neuron_exclusion = False
                 self.neuron_locations = None
         elif _type == "neuropixel":
             # print("use use_probe function to select one or multiple probes")
@@ -128,7 +128,7 @@ class Session:
                 pass
 
     def get_exp_info(self):
-        if len(self.resp_train.shape)==5:
+        if len(self.resp_train.shape) == 5:
             n_neurons, n_conditions, n_images, n_trials, n_ms = self.resp_train[
                 :, :, :, :, :
             ].shape
@@ -139,17 +139,14 @@ class Session:
                 "n_trials": n_trials,
                 "n_ms": n_ms,
             }
-        elif len(self.resp_train.shape)==4:
-            n_neurons, n_images, n_trials, n_ms = self.resp_train[
-                :, :, :, :
-            ].shape
+        elif len(self.resp_train.shape) == 4:
+            n_neurons, n_images, n_trials, n_ms = self.resp_train[:, :, :, :].shape
             self.exp_info = {
                 "n_neurons": n_neurons,
                 "n_images": n_images,
                 "n_trials": n_trials,
                 "n_ms": n_ms,
             }
-
 
     def get_neuron_locations(self, thresh=25, d=10):
         """
@@ -301,14 +298,137 @@ class Session:
 
         self.masked = True
 
-    def get_df(self,sample_ims = 1,sample_neurons=1,random=False):
+    def clean_interleaved_df(self):
+        """
+        Used if small/large images are interleaved
+
+        Parameters:
+        -----------
+        self.df : DataFrame
+            starts from this 
+        
+        Returns:
+        df : DataFrame 
+
+        """
+        #number of ims in the dataframe:
+        df = self.df
+        n_ims = len(np.unique(df.img_idx.values))
+        #each group is a small/large image 
+        n_groups = n_ims//2
+
+        df.insert(
+            0,
+            "group",
+            np.concatenate(
+                [np.asarray(
+                    [i]*df.n_pairs[0]*2) 
+                    for i in range(n_groups)]
+                )
+            )
+
+        #column names to check:
+        check_these = [
+            "neuron1_xy_coord",
+            "neuron2_xy_coord",
+            "rsc_small",
+            "rsc_large"
+        ]
+        
+        #column names to drop
+        drop_these = [
+            "rsc_small",
+            "rsc_large"
+        ]
+
+        full_df_to_concat = []
+
+        for group in range(n_groups):
+            sdf = df.loc[df.group==group]
+            #filter out NaN coordinates and NaN rscs
+            valid_idxs = sdf.loc[:,check_these].dropna().index
+            valid=sdf.loc[valid_idxs,:]
+            #get column names (for later) after dropping necessary columns
+            colnames = list(valid.drop(drop_these,axis=1))
+            #only use pairs that show up twice (once in small image, once in large)
+            pair_counts = pd.DataFrame.from_dict(
+                Counter(valid.pair_idx),orient="index").reset_index().rename(
+                    {"index":"pair_idx",0:"c"},axis=1
+                )
+            
+            #reindex valid with pair_idxs (for speed)
+            valid_r = valid.set_index("pair_idx",drop=False)
+            new_idx = pd.Index(pair_counts.loc[pair_counts.c==2,"pair_idx"].values)
+            #df with matched pairs
+            mdf = valid_r.loc[new_idx]
+            mdf['temp'] = mdf['rsc_small']-mdf['rsc_large']
+            #calculate delta rsc for matched pairs
+            pv = mdf.pivot_table(
+                index="pair_idx",
+                values=[
+                    "temp",
+                    "rsc_small",
+                    "rsc_large"
+                ],
+                aggfunc=np.sum
+            ).reset_index() #this pivot table has delta rscs for matched pairs
+            #drop temporary and unncessary variables from mdf
+            mdf.drop(["img_idx","rsc_small","rsc_large","temp"],axis=1,inplace=True)
+            colnames.pop(1)
+            #finalize pv values:
+            pv['rsc_small']=pv['rsc_small']+2
+            pv['rsc_large']=pv['rsc_large']+2
+            pv.rename({
+                "temp":"delta_rsc"
+            },axis=1,inplace=True)
+            pv.drop("pair_idx",axis=1,inplace=True)
+            pv=pv.loc[:,["rsc_small","rsc_large","delta_rsc"]]
+            #drop duplicates from matched df, sort, and reset index
+            mdf.drop_duplicates(
+                subset="pair_idx",inplace=True
+            )
+            mdf.sort_values(
+                "pair_idx",inplace=True
+            )
+            mdf.reset_index(
+                drop=True,inplace=True
+            )
+
+            out = pd.concat([mdf,pv],axis=1,ignore_index=True)
+
+            colnames = colnames + drop_these + ["delta_rsc"]
+
+            out.rename(
+                {k:v for k,v in zip(out.columns,colnames)},axis=1,inplace=True
+            )
+
+            full_df_to_concat.append(out)
+
+        full_out = pd.concat(full_df_to_concat,axis=0,ignore_index=True)
+        counts = Counter(full_out.group)
+        n_pairs = [counts[num] for num in full_out.group]
+        full_out['n_pairs'] = n_pairs
+
+        return full_out
+
+    def get_df(
+        self, sample_ims=1, sample_neurons=1, random=False, calculate_delta_rsc=False
+    ):
+        all_possible_pairs = list(
+            combinations(list(range(self.exp_info["n_neurons"])), 2)
+        )
+
+        self.pair_lut = {
+            k: v for k, v in zip(all_possible_pairs, range(len(all_possible_pairs)))
+        }
+
         to_concat = []
         all_img_idxs = list(range(self.exp_info["n_images"]))
 
         if random:
-            assert sample_ims<1
-            n_samples = round(len(all_img_idxs)*sample_ims)
-            idxs = random.sample(all_img_idxs,n_samples)
+            assert sample_ims < 1
+            n_samples = round(len(all_img_idxs) * sample_ims)
+            idxs = random.sample(all_img_idxs, n_samples)
         else:
             if sample_ims is not None:
                 idxs = all_img_idxs[:sample_ims]
@@ -316,15 +436,19 @@ class Session:
                 idxs = all_img_idxs
 
         for im in idxs:
-            df = self._get_im_df(im,sample_neurons=sample_neurons)
+            df = self._get_im_df(im, sample_neurons=sample_neurons)
             to_concat.append(df)
 
         out = pd.concat(to_concat, ignore_index=True)
 
         self.df = out
         df = self.df
-        df["delta_rsc"] = df["rsc_small"] - df["rsc_large"]
-        self.neuron_delta_rsc_lookup = self.df.pivot_table(index=["img_idx","neuron1"],columns="neuron2",values="delta_rsc")
+        if calculate_delta_rsc:
+            df["delta_rsc"] = df["rsc_small"] - df["rsc_large"]
+            self.neuron_delta_rsc_lookup = self.df.pivot_table(
+                index=["img_idx", "neuron1"], columns="neuron2", values="delta_rsc"
+            )
+
 
         return out
 
@@ -334,18 +458,20 @@ class Session:
         pairs = list(combinations(responsive_neurons, 2))
 
         if sample_neurons is not None:
-            n_sample = round(sample_neurons*self.exp_info["n_neurons"])
-            pairs = random.sample(pairs,n_sample)
+            n_sample = round(sample_neurons * len(pairs))
+            pairs = random.sample(pairs, n_sample)
 
         d = {}
         origin = [0, 0]
 
-        if not hasattr(self,"XYch"):
-            self.XYch = self.RF_SPATIAL[:,:2]
+        if not hasattr(self, "XYch"):
+            self.XYch = self.RF_SPATIAL[:, :2]
             self.xy_coords = [coord for coord in self.XYch]
-        
-        if not hasattr(self,"np_coords"):
+
+        if not hasattr(self, "np_coords"):
             self.np_coords = self._get_neuron_np_coords()
+
+        parse_nan = lambda x: x if (x == x).any() else np.nan
 
         d["img_idx"] = [im] * len(pairs)
         d["pairs"] = pairs
@@ -354,20 +480,23 @@ class Session:
             tb.euclidean_distance(self.XYch[pair[0]], origin) for pair in pairs
         ]
         d["neuron1_pos"] = [self._get_neuron_location(pair[0]) for pair in pairs]
-        d["neuron1_xy_coord"] = [self.XYch[pair[0]] for pair in pairs]
+        d["neuron1_xy_coord"] = [parse_nan(self.XYch[pair[0]]) for pair in pairs]
         d["neuron1_np_coord"] = [self.np_coords[pair[0]] for pair in pairs]
         d["neuron2"] = [pair[1] for pair in pairs]
         d["neuron2_distance_from_origin"] = [
             tb.euclidean_distance(self.XYch[pair[1]], origin) for pair in pairs
         ]
         d["neuron2_pos"] = [self._get_neuron_location(pair[1]) for pair in pairs]
-        d["neuron2_xy_coord"] = [self.XYch[pair[1]] for pair in pairs]
+        d["neuron2_xy_coord"] = [parse_nan(self.XYch[pair[1]]) for pair in pairs]
         d["neuron2_np_coord"] = [self.np_coords[pair[1]] for pair in pairs]
+        d["distance"] = [self._get_dist_between_neurons(pair) for pair in pairs]
         d["rsc_small"] = [self._get_rsc_at_image(pair, im, "small") for pair in pairs]
         d["rsc_large"] = [self._get_rsc_at_image(pair, im, "large") for pair in pairs]
-        d["distance"] = [self._get_dist_between_neurons(pair) for pair in pairs]
 
         df = pd.DataFrame.from_dict(d)
+
+        _get_pair_idx = lambda x: self.pair_lut[x]
+        get_pair_idx = tb.slicer(_get_pair_idx)
 
         if self._neuron_exclusion:
             df["pair_orientation"] = 0
@@ -384,15 +513,20 @@ class Session:
 
             df = df.loc[df.pair_orientation != 0]
 
-            counts = Counter(df.img_idx)
-            n_pairs = [counts[num] for num in df.img_idx]
-            df.insert(1, "n_pairs", n_pairs)
+
+        pair_idxs = get_pair_idx(df.pairs.values)
+        counts = Counter(df.img_idx)
+        n_pairs = [counts[num] for num in df.img_idx]
+        df.insert(1, "n_pairs", n_pairs)
+        df.insert(2,"pair_idx",pair_idxs)
+        
+
 
         return df
 
     def get_neuron_info(self):
         """
-        Outputs a dataframe with positional and index information for all center and off_center neurons  
+        Outputs a dataframe with positional and index information for all center and off_center neurons
 
         Parameters:
         ----------------
@@ -401,30 +535,30 @@ class Session:
         Returns:
         ----------------
         DataFrame with columns:
-            DataFrame.index : int 
-                a standard index for all rows 
+            DataFrame.index : int
+                a standard index for all rows
             index : int
                 The index of the neuron in the Session.df dataframe
-            neuron : int 
-                The index of the neuron in the experiment structure 
+            neuron : int
+                The index of the neuron in the experiment structure
             xy_coord : list, float
                 A 2-element list of coordinates with the origin defined in the center of the image
             pos : str
                 states whether the neuron is considered "center" or "off_center"
-            x : float 
+            x : float
                 The first element of xy_coord
-            y : float 
+            y : float
                 The second element of xy_coord
-            x_np : int 
+            x_np : int
                 The first element of xy_coord with the origin defined in the upper left corner of the image
                 (numpy array standard)
-            y_np : int 
+            y_np : int
                 The second element of xy_coord with the origin defined in the upper left corner of the image
                 (numpy array standard)
-            x_mpl : int 
+            x_mpl : int
                 The first element of xy_coord with the origin defined in the lower left corner of the image
                 (matplotlib plot standard)
-            y_mpl : int 
+            y_mpl : int
                 The second element of xy_coord with the origin defined in the lower left corner of the image
                 (matplotlib plot standard)
         """
@@ -438,19 +572,18 @@ class Session:
             axis=1,
         )
 
-        neurons=pd.concat([neuron1,neuron2],ignore_index=True,axis=0)
+        neurons = pd.concat([neuron1, neuron2], ignore_index=True, axis=0)
         squeeze = neurons.drop_duplicates(["neuron"]).reset_index()
 
-        coords_df = pd.DataFrame(squeeze.xy_coord.to_list(),columns=["x","y"])
+        coords_df = pd.DataFrame(squeeze.xy_coord.to_list(), columns=["x", "y"])
 
-        tx_np = tb.slicer(lambda x:tb.transform_coord_system((x,0))[1])
-        ty_np = tb.slicer(lambda y:tb.transform_coord_system((0,y))[0])
+        tx_np = tb.slicer(lambda x: tb.transform_coord_system((x, 0))[1])
+        ty_np = tb.slicer(lambda y: tb.transform_coord_system((0, y))[0])
 
-        tx_mpl = tb.slicer(lambda x:tb.transform_coord_system_mpl((x,0))[0])
-        ty_mpl = tb.slicer(lambda y:tb.transform_coord_system_mpl((0,y))[1])
+        tx_mpl = tb.slicer(lambda x: tb.transform_coord_system_mpl((x, 0))[0])
+        ty_mpl = tb.slicer(lambda y: tb.transform_coord_system_mpl((0, y))[1])
 
-        
-        out = pd.concat([squeeze,coords_df],axis=1)
+        out = pd.concat([squeeze, coords_df], axis=1)
 
         out["x_np"] = tx_np(out["x"])
         out["y_np"] = ty_np(out["y"])
@@ -471,30 +604,65 @@ class Session:
         return tb.euclidean_distance(coord1, coord2)
 
     def _get_rsc_at_image(self, neuron_pair_tup, image, condition):
-        """ """
-        if not hasattr(self,"spike_counts"):
-            self.spike_counts = np.sum(self.resp_train,axis=-1)
+        """
+        Gets Rsc for a small or large image.
 
-        skip=False
+        Data type 1:
+        --------------------
+        If the image size is specificed as a separate dimension of the resp_train
+        (len(self.resp_train.shape))==5, then use that for small vs. large
+
+        Data type 2:
+        --------------------
+        If the image size is not specificed as a separate dimension of the resp_train
+        (len(self.resp_train.shape))==4, then use index even/odd for small vs. large
+
+        Parameters:
+        -----------
+
+        neuron_pair_tup : tuple of ints
+            a tuple referencing which indexes of the neurons are in the current pair
+        image : int
+            an int referencing which index of the image to use
+        condition : str
+            "small" or "large" only used with data type 1, in data type 2 this is inferred from
+            the parity of the image index
+
+        Returns:
+        ---------
+        out : float
+            returns the Pearson correlation as a float, if input is invalid returns invalid_value
+            specified in tb.pearson_r
+
+
+        """
+        if not hasattr(self, "spike_counts"):
+            self.spike_counts = np.sum(self.resp_train, axis=-1)
+
+        skip = False
 
         if len(self.resp_train.shape) == 5:
-            x, y = self.spike_counts[neuron_pair_tup, SMALL_LARGE_IDXS[condition], image, :]
-        elif len(self.resp_train.shape) ==4:
-            if condition=="small":
-                if image%2 == 0:
+            x, y = self.spike_counts[
+                neuron_pair_tup, SMALL_LARGE_IDXS[condition], image, :
+            ]
+        elif len(self.resp_train.shape) == 4:
+            if condition == "small":
+                if image % 2 == 0:
                     x, y = self.spike_counts[neuron_pair_tup, image, :]
                 else:
-                    skip=True
-            elif condition=="large":
-                if image%2 == 1:
+                    skip = True
+            elif condition == "large":
+                if image % 2 == 1:
                     x, y = self.spike_counts[neuron_pair_tup, image, :]
                 else:
-                    skip=True
+                    skip = True
 
         if not skip:
             out = tb.pearson_r(x, y)
         else:
-            out = -1
+            # choose -2 because the bounds of a Pearson coefficient are (-1,1)
+            # this way we know if invalid value is because of a skip or because of invalid input
+            out = -2
 
         return out
 
@@ -544,7 +712,7 @@ class Session:
                 }
 
             out = np.concatenate(list(responsive_idxs.values()))
-        else: 
+        else:
             out = np.asarray(range(self.exp_info["n_neurons"]))
 
         return out
@@ -707,55 +875,54 @@ class Session:
         }
         return d
 
-    #PSEUDONEURON FUNCTIONS FOR PSEUDOSEGMENTATION
+    # PSEUDONEURON FUNCTIONS FOR PSEUDOSEGMENTATION
 
-    
-    def _get_neuron_pos_KDTree(self,location="center",coord_type="np"):
-        """"
+    def _get_neuron_pos_KDTree(self, location="center", coord_type="np"):
+        """ "
         Returns a KDTree containing the coordinates of specified neurons:
 
         Parameters:
         ------------
         location : str
             Valid values are "center", "off_center", None
-            if None the coordinates of ALL neurons are used 
-        coord_type : str 
-            "mpl", "np" or None 
+            if None the coordinates of ALL neurons are used
+        coord_type : str
+            "mpl", "np" or None
             if None the coordinates are with origin as center
-    
+
         Retruns:
         --------------------
         self.tree : KDTree
             see scipy.spatial.KDTree
-        
+
         """
         xy_strs = ["x", "y"]
 
         if coord_type is not None:
             xy_strs = [s + "_" + coord_type for s in xy_strs]
 
-        if self.neuron_df is not None: 
+        if self.neuron_df is not None:
             ndf = self.neuron_df
         else:
             ndf = self.get_neuron_info()
-        
+
         if location is not None:
-            coords = ndf.loc[ndf.pos==location,[xy_strs[0],xy_strs[1]]].to_numpy()
-            
-            ndf_tree = ndf.loc[ndf.pos==location]
-            ndf_tree.insert(1,"mapping_index",list(range(len(ndf_tree))))
+            coords = ndf.loc[ndf.pos == location, [xy_strs[0], xy_strs[1]]].to_numpy()
+
+            ndf_tree = ndf.loc[ndf.pos == location]
+            ndf_tree.insert(1, "mapping_index", list(range(len(ndf_tree))))
 
             self.neuron_df = ndf_tree
         else:
-            coords = ndf.loc[:,[xy_strs[0],xy_strs[1]]].to_numpy()
+            coords = ndf.loc[:, [xy_strs[0], xy_strs[1]]].to_numpy()
 
         tree = KDTree(coords)
 
         self.KDTree = tree
 
         return tree
-    
-    def _get_pseudo_grid(self,center_window=None,imsize=256,gridsize=15):
+
+    def _get_pseudo_grid(self, center_window=None, imsize=256, gridsize=15):
         """
         Returns the coordinates of a grid of pseudo-neurons across the center of the image
         (defined by center_window)
@@ -769,141 +936,147 @@ class Session:
         gridsize : int, default 15
             the resolution of the pseudogrid will be gridsize x gridsize
 
-        Returns: 
+        Returns:
         ---------
         coords : array of shape (gridsize x gridsize,2)
         """
         if center_window is not None:
             center_window = center_window
-        else: 
+        else:
             center_window = self.neuron_exclusion_parameters["thresh"]
-        
-        origin = imsize//2
-        s = origin-center_window//2
-        S = origin+center_window//2
-        x = np.linspace(s,S,gridsize,dtype="int")
-        grid_coords = np.asarray(np.meshgrid(x,x)).reshape((2,-1)).T  
-        
-        self.pseudogrid_coords = grid_coords 
+
+        origin = imsize // 2
+        s = origin - center_window // 2
+        S = origin + center_window // 2
+        x = np.linspace(s, S, gridsize, dtype="int")
+        grid_coords = np.asarray(np.meshgrid(x, x)).reshape((2, -1)).T
+
+        self.pseudogrid_coords = grid_coords
         self.pseudogrid_size = gridsize
 
         return grid_coords
 
-    def _get_pseudoneuron_sampling_weights(self,param,method="relu"):
+    def _get_pseudoneuron_sampling_weights(self, param, method="relu"):
         """
         Returns a sampling weight per neuron as a function of distance
 
         Parameters:
         ----------
         method : str, default "relu"
-            Options are: 
-                -relu : 
+            Options are:
+                -relu :
                 -gaussian2d
                 -softmax
-        param : float 
-            Has different meanings depending on the method used: 
+        param : float
+            Has different meanings depending on the method used:
                 -relu : a distance threshold, neurons past this threshold have sampling weights of 0
                     other neurons have sampling weights that are scaled linearly according to distance
-                -softmax : temperature 
-                -gaussian2d : covariance 
-            
-        Returns: 
+                -softmax : temperature
+                -gaussian2d : covariance
+
+        Returns:
         ----------
-        weights : array, float 
+        weights : array, float
             shows sampling weights from [0,1], has shape (gridsize x gridsize, center_neurons)
-        ncd : array, float 
-            shows (max(distance) - distance) for each neuron, has shape (gridsize x gridsize, center_neurons) 
-        distance : array, float 
-            shows distance for each neuron, has shape (gridsize x gridsize, center_neurons) 
-        nn_info[1] : array, int 
+        ncd : array, float
+            shows (max(distance) - distance) for each neuron, has shape (gridsize x gridsize, center_neurons)
+        distance : array, float
+            shows distance for each neuron, has shape (gridsize x gridsize, center_neurons)
+        nn_info[1] : array, int
             shows index of neurons in ascending order of distance, has shape (center_neurons)
 
-            
+
         """
-        if method=="relu":
-            tree = self.KDTree        
+        if method == "relu":
+            tree = self.KDTree
             grid = self.pseudogrid_coords
-            #nearest neighbor information
-            nn_info = tree.query(grid,k=len(tree.data))
+            # nearest neighbor information
+            nn_info = tree.query(grid, k=len(tree.data))
             distances = nn_info[0]
-            
+
             close_distances = distances.copy()
-            close_distances[close_distances>param] = np.nan
-            
-            norm_close_distances = np.nanmax(close_distances,axis=1)[...,np.newaxis] - close_distances
+            close_distances[close_distances > param] = np.nan
+
+            norm_close_distances = (
+                np.nanmax(close_distances, axis=1)[..., np.newaxis] - close_distances
+            )
             ncd = norm_close_distances
             weights = ncd.copy()
-            
-            sncd = np.nansum(ncd,axis=1)
-            zero_vector_idxs = (sncd==0)
+
+            sncd = np.nansum(ncd, axis=1)
+            zero_vector_idxs = sncd == 0
             zvs = zero_vector_idxs
-            
-            weights[~zvs] = (ncd/sncd[...,np.newaxis])[~zvs]
-            
-            
+
+            weights[~zvs] = (ncd / sncd[..., np.newaxis])[~zvs]
+
             if len(weights[zvs]) == 0:
                 pass
             else:
-                weights[zvs] = np.apply_along_axis(tb.nan_softmax,1,ncd[zvs])
-            
+                weights[zvs] = np.apply_along_axis(tb.nan_softmax, 1, ncd[zvs])
+
             w = weights
-            
-            w[~(w==w)] = 0 
-            
+
+            w[~(w == w)] = 0
+
             assert w.shape == distances.shape
 
             sorted_neurons = nn_info[1]
             unsorted_idxs = sorted_neurons.argsort(axis=1)
-            unsorted_neuron_weights = np.take_along_axis(weights,unsorted_idxs,1)
+            unsorted_neuron_weights = np.take_along_axis(weights, unsorted_idxs, 1)
             unw = unsorted_neuron_weights
-            
+
         self.sorted_pseudoneuron_sampling_weights = weights
         self.unsorted_pseudoneuron_sampling_weights = unw
 
         return weights, ncd, distances, nn_info[1]
-    
-    def _get_pseudoneuron_sampling_grid(self,weights):
+
+    def _get_pseudoneuron_sampling_grid(self, weights):
         """
-        Generates an instance of the pseudoneuron grid 
+        Generates an instance of the pseudoneuron grid
 
         Parameters:
         -------------
-        weights : array, float 
+        weights : array, float
             from self._get_pseudoneuron_sampling_weights, assumes weights are unsorted
-        
-        Returns: 
+
+        Returns:
         ---------
-        pseudoneurons_grid : array, int 
+        pseudoneurons_grid : array, int
             an array of shape (gridsize,gridsize) in which each element is assigned a neuron
         """
 
-        weights = weights 
-        
-        pseudoneurons = np.asarray([
-            choose(np.asarray(list(range(len(self.KDTree.data))),dtype="int"),
-                p=weights[idx])
-            for idx in range(weights.shape[0])
+        weights = weights
+
+        pseudoneurons = np.asarray(
+            [
+                choose(
+                    np.asarray(list(range(len(self.KDTree.data))), dtype="int"),
+                    p=weights[idx],
+                )
+                for idx in range(weights.shape[0])
             ]
         )
 
-        pseudoneurons_grid = pseudoneurons.reshape((self.pseudogrid_size,self.pseudogrid_size))
+        pseudoneurons_grid = pseudoneurons.reshape(
+            (self.pseudogrid_size, self.pseudogrid_size)
+        )
 
         self.pseudoneurons_grid = pseudoneurons_grid
 
         return pseudoneurons_grid
 
-    def _lookup_delta_rsc(self,image_idx,neuron1,neuron2,same_value=1):
+    def _lookup_delta_rsc(self, image_idx, neuron1, neuron2, same_value=1):
         """
         Looks up the delta rsc for a given image and 2 given neurons
 
         Parameters:
         --------------------
-        image_idx : int 
-            which image to use 
-        
-        neuron1, neuron2 : int 
-            indices of neurons to use 
-        
+        image_idx : int
+            which image to use
+
+        neuron1, neuron2 : int
+            indices of neurons to use
+
         same_values : float, default 1
             value to return when neuron1==neuron2
             another option is np.nan if only different neuron repsonses should be considered
@@ -913,37 +1086,35 @@ class Session:
         delta_rsc : float
 
         """
-        if self.neuron_delta_rsc_lookup is not None: 
+        if self.neuron_delta_rsc_lookup is not None:
             self.df = self.get_df()
-        
-        #get.df() function creates self.neuron_delta_rsc lookup attribute
+
+        # get.df() function creates self.neuron_delta_rsc lookup attribute
         df = self.neuron_delta_rsc_lookup
-        if neuron1==neuron2:
+        if neuron1 == neuron2:
             return same_value
         else:
-            #try except makes function agnostic to order of input 
+            # try except makes function agnostic to order of input
             try:
-                return df.loc[image_idx].at[neuron1,neuron2]
+                return df.loc[image_idx].at[neuron1, neuron2]
             except KeyError:
                 try:
-                    return df.loc[image_idx].at[neuron2,neuron1]
+                    return df.loc[image_idx].at[neuron2, neuron1]
                 except KeyError:
                     return np.nan
-
-            
 
     def _get_segmap_pairs(self):
         """
         Gets segmap pairs and pair indexes from PseudoSegmentationMap object (check imports)
         """
-        seg_map = PseudoSegmentationMap(2,self.pseudogrid_size,device="cpu")
+        seg_map = PseudoSegmentationMap(2, self.pseudogrid_size, device="cpu")
         seg_map_pairs = [tuple(pair) for pair in seg_map.px_pairs.tolist()]
-        pair_lut = {k:v for k,v in zip(seg_map_pairs,range(len(seg_map_pairs)))}
+        pair_lut = {k: v for k, v in zip(seg_map_pairs, range(len(seg_map_pairs)))}
         seg_map_pair_idxs = [pair_lut[pair] for pair in seg_map_pairs]
 
         d = {
-            "px_pair":seg_map_pairs,
-            "px_pair_select_idx":seg_map_pair_idxs,
+            "px_pair": seg_map_pairs,
+            "px_pair_select_idx": seg_map_pair_idxs,
         }
 
         self.Rdf_idx = pd.DataFrame.from_dict(d)
@@ -952,38 +1123,39 @@ class Session:
         return seg_map_pairs
 
     def _get_pseudoneuron_responses(
-            self,
-            img_idx,
-            center_window=None,
-            im_size=256,
-            gridsize=15,
-            activation_param=15,
-            activation_method="relu",
-            pseudoneurons_list=None):
+        self,
+        img_idx,
+        center_window=None,
+        im_size=256,
+        gridsize=15,
+        activation_param=15,
+        activation_method="relu",
+        pseudoneurons_list=None,
+    ):
         """
         Gets pseudoneuron responses for all pairs in a given pseudogrid
 
         Parameters:
         ----------------
         img_idx : int
-            Index of the image to retrieve responses at 
-        center_window : int 
+            Index of the image to retrieve responses at
+        center_window : int
             Diameter of the center window (in pixels)
-        im_size : int 
-            Total size of input image 
-        gridsize : int 
-            Square root of number of total pseudoneurons 
-        activation_param : int 
-            Paramter used in neuron sampling 
+        im_size : int
+            Total size of input image
+        gridsize : int
+            Square root of number of total pseudoneurons
+        activation_param : int
+            Paramter used in neuron sampling
         activation_method : str
             See _get_pseudoneuron_sampling_weights()
         pseudoneurons_list : list
-            list of pseudoneuron neuron assignments 
+            list of pseudoneuron neuron assignments
 
         Returns:
         ----------
         R : np.array
-            Vector of responses 
+            Vector of responses
 
         """
         if pseudoneurons_list is not None:
@@ -992,40 +1164,44 @@ class Session:
             self.get_neuron_info()
             self._get_neuron_pos_KDTree()
             self._get_pseudo_grid(
-                center_window=center_window,
-                imsize=im_size,
-                gridsize=gridsize
+                center_window=center_window, imsize=im_size, gridsize=gridsize
             )
 
             seg_map_pairs = self._get_segmap_pairs()
 
-            self._get_pseudoneuron_sampling_weights(param=activation_param, method=activation_method)
+            self._get_pseudoneuron_sampling_weights(
+                param=activation_param, method=activation_method
+            )
 
-            self._get_pseudoneuron_sampling_grid(self.unsorted_pseudoneuron_sampling_weights)
+            self._get_pseudoneuron_sampling_grid(
+                self.unsorted_pseudoneuron_sampling_weights
+            )
 
             pseudoneurons_list = np.ravel(self.pseudoneurons_grid)
 
-        neuron_lut = {k:v for k,v in zip(list(self.neuron_df.mapping_index),list(self.neuron_df.neuron))}
+        neuron_lut = {
+            k: v
+            for k, v in zip(
+                list(self.neuron_df.mapping_index), list(self.neuron_df.neuron)
+            )
+        }
 
         delta_rscs = np.asarray(
             [
                 self._lookup_delta_rsc(
                     img_idx,
-                    neuron_lut[
-                        pseudoneurons_list[pair[0]]
-                    ],
-                    neuron_lut[
-                        pseudoneurons_list[pair[1]]
-                    ])
-                        for pair in seg_map_pairs        
+                    neuron_lut[pseudoneurons_list[pair[0]]],
+                    neuron_lut[pseudoneurons_list[pair[1]]],
+                )
+                for pair in seg_map_pairs
             ]
         )
 
-        #delta_rsc > 0 = 1
-        #delta_rsc < 0 = 0 
+        # delta_rsc > 0 = 1
+        # delta_rsc < 0 = 0
         R = np.zeros(delta_rscs.shape)
-        R[delta_rscs!=delta_rscs] = np.nan
-        R[delta_rscs>0] = 1
+        R[delta_rscs != delta_rscs] = np.nan
+        R[delta_rscs > 0] = 1
 
         return R
 
@@ -1040,11 +1216,11 @@ class Session:
         activation_method="relu",
     ):
         """
-        Gets responses n_trials times 
+        Gets responses n_trials times
 
-        Parameters: 
+        Parameters:
         -----------
-        n_trials : number of trials to get pseudoneuron responses for 
+        n_trials : number of trials to get pseudoneuron responses for
 
         See above for other params
 
@@ -1065,53 +1241,51 @@ class Session:
                     im_size=im_size,
                     gridsize=gridsize,
                     activation_param=activation_param,
-                    activation_method=activation_method
+                    activation_method=activation_method,
                 )
             )
-        response_dict = {
-            k:v for k,v in zip(labels,responses)
-        }
+        response_dict = {k: v for k, v in zip(labels, responses)}
 
         Rdf = pd.DataFrame.from_dict(response_dict)
 
-        self.responses_df = pd.concat([self.Rdf_idx,Rdf],axis=1)
+        self.responses_df = pd.concat([self.Rdf_idx, Rdf], axis=1)
 
         return self.responses_df
 
     def _compute_segmap_loss(
-            self,
-            n_seg,
-            n_grid,
-            tresp,
-            tpairs,
-            lap_reg=5,
-            lr=1e-1,
-            max_iter=50000,
-            tol=1e-6,
-            save_iter=True
-        ):
+        self,
+        n_seg,
+        n_grid,
+        tresp,
+        tpairs,
+        lap_reg=5,
+        lr=1e-1,
+        max_iter=50000,
+        tol=1e-6,
+        save_iter=True,
+    ):
         """
         Computes the segmentation map from pseudoneuron responses
 
         Parameters:
         ------------
-        n_seg : int 
+        n_seg : int
             Number of segments to use in segmentation
-        n_grid : int 
+        n_grid : int
             Same as gridsize parameter
         tresp : torch.tensor (dtype=torch.float64)
-            Tensor of responses 
+            Tensor of responses
         tpairs : torch.tensor (dtype=torch.long)
             Tensor of pair indexes
-        lap_reg : int 
+        lap_reg : int
             Laplacian regularization paramter
-        lr : float 
+        lr : float
             Learning rate for visual segmentation algorithm
-        max_iter : int 
-            Maximum number of iterations to use 
-        tol : float 
+        max_iter : int
+            Maximum number of iterations to use
+        tol : float
             The tolerance for a final computation of the segment assignemtns
-        save_iter : bool 
+        save_iter : bool
             Whether to save values at every iteration
         """
         torch.manual_seed(10)
@@ -1136,38 +1310,37 @@ class Session:
             loss[i] = seg_map.loss_iter[i].detach().numpy()
 
         return seg_map, inferred_proba_maps, seg_proba_maps, loss
-        
 
     def pseudosegment(
-            self,
-            img_idx,
-            n_seg=2,
-            sample=1,
-            n_trials=1,
-            center_window=None,
-            im_size=256,
-            gridsize=15,
-            activation_param=15,
-            activation_method="relu",
-            lap_reg=5,
-            lr=1e-1,
-            max_iter=50000,
-            tol=1e-6,
-            save_iter=True,
-            seed=None
+        self,
+        img_idx,
+        n_seg=2,
+        sample=1,
+        n_trials=1,
+        center_window=None,
+        im_size=256,
+        gridsize=15,
+        activation_param=15,
+        activation_method="relu",
+        lap_reg=5,
+        lr=1e-1,
+        max_iter=50000,
+        tol=1e-6,
+        save_iter=True,
+        seed=None,
     ):
         """
         Pseudosegmentation function to call with image index
 
-        Parameters: 
+        Parameters:
         ----------------
-        See _compute_segmap_loss for most 
+        See _compute_segmap_loss for most
 
-        img_idx : int 
-            Index of image to get repsonses from 
+        img_idx : int
+            Index of image to get repsonses from
         seed : np.random.rand
             Random number to help function generate random output even with function caching
-        
+
         """
         self._get_pseudoneuron_response_table(
             n_trials,
@@ -1176,18 +1349,18 @@ class Session:
             im_size=im_size,
             gridsize=gridsize,
             activation_param=activation_param,
-            activation_method=activation_method
+            activation_method=activation_method,
         )
 
         valid_responses = self.responses_df.dropna()
         valid_responses = valid_responses.sample(frac=sample)
-        responses_arr = valid_responses.iloc[:,2:].to_numpy().T
-        responses_t = torch.tensor(responses_arr,dtype=torch.float64)
+        responses_arr = valid_responses.iloc[:, 2:].to_numpy().T
+        responses_t = torch.tensor(responses_arr, dtype=torch.float64)
 
         pairs_t = torch.tensor(
-            valid_responses.px_pair_select_idx.to_numpy(),dtype=torch.long)
+            valid_responses.px_pair_select_idx.to_numpy(), dtype=torch.long
+        )
 
-        
         seg_map, inferred_proba_maps, seg_proba_maps, loss = self._compute_segmap_loss(
             n_seg,
             self.pseudogrid_size,
@@ -1197,69 +1370,63 @@ class Session:
             lr=lr,
             max_iter=max_iter,
             tol=tol,
-            save_iter=save_iter
+            save_iter=save_iter,
         )
 
         d = {
-            "PseudoSegmentationMap":seg_map,
-            "inferred_proba_maps":inferred_proba_maps,
-            "seg_proba_maps":seg_proba_maps,
-            "loss":loss
+            "PseudoSegmentationMap": seg_map,
+            "inferred_proba_maps": inferred_proba_maps,
+            "seg_proba_maps": seg_proba_maps,
+            "loss": loss,
         }
 
-        return d 
-        
+        return d
 
+    # def pseudosegment(
+    # self,
+    # image_idx,
+    # k,
+    # center_window=None,
+    # im_size=None,
+    # gridsize=15,
+    # activation_param=15,
+    # activation_method="relu",
+    # lapreg = 5,
+    # lr = 1e1,
+    # max_iter = 50000,
+    # tol = 1e-6,
+    # sav_iter=True
+    # ):
+    # """
+    # Performs a pseudosegmentation using the visual segmentation protocol:
 
+    # Parameters:
+    # -----------
+    # image_idx : int
+    # From the session, the index of the image to segment
+    # center_window : optional, default None
+    # if None, uses the neuron exclusion threshold radius
+    # im_size : optional default, 256
+    # if None, uses 256
+    # gridsize : int
+    # the gridsize to use for pseudosegmentation
+    # activation_param : optional
+    # same as param in self._get_pseudoneuron_sampling_weights
+    # activation_method : option
+    # same as method in self._get_pseudoneuron_sampling_weights
 
+    # Returns:
+    # ---------
 
+    # """
+    # pass
 
-    #def pseudosegment(
-            #self,
-            #image_idx,
-            #k,
-            #center_window=None,
-            #im_size=None,
-            #gridsize=15,
-            #activation_param=15,
-            #activation_method="relu",
-            #lapreg = 5,
-            #lr = 1e1,
-            #max_iter = 50000,
-            #tol = 1e-6,
-            #sav_iter=True
-    #):
-        #"""
-        #Performs a pseudosegmentation using the visual segmentation protocol: 
-
-        #Parameters:
-        #-----------
-        #image_idx : int
-            #From the session, the index of the image to segment 
-        #center_window : optional, default None
-            #if None, uses the neuron exclusion threshold radius
-        #im_size : optional default, 256
-            #if None, uses 256
-        #gridsize : int
-            #the gridsize to use for pseudosegmentation 
-        #activation_param : optional
-            #same as param in self._get_pseudoneuron_sampling_weights
-        #activation_method : option
-            #same as method in self._get_pseudoneuron_sampling_weights
-
-        #Returns:
-        #---------
-
-        #"""
-        #pass
 
 import inspect
 
-for name,fn in inspect.getmembers(Session, inspect.isfunction):
+for name, fn in inspect.getmembers(Session, inspect.isfunction):
     if name != "_get_pseudoneuron_sampling_grid":
         if name != "_get_pseudoneuron_responses":
             if name != "pseudosegment":
-                if name!= "_lookup_delta_rsc":
-                    setattr(Session,name,memoize(fn))
-
-
+                if name != "_lookup_delta_rsc":
+                    setattr(Session, name, memoize(fn))
