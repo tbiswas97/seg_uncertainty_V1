@@ -147,8 +147,9 @@ class Session:
                 "n_trials": n_trials,
                 "n_ms": n_ms,
             }
+        
 
-    def get_neuron_locations(self, thresh=25, d=10):
+    def get_neuron_locations(self, thresh=25, d=10,use_df=False):
         """
         Splits neurons into three pools: center, off-center, and excised.
 
@@ -159,7 +160,10 @@ class Session:
         d : int
             Neurons between this radius and thresh (in pixels) are considered on the border and are excised.
             Neurons outside of the radius thresh + d are considered off-center
-
+        use_df : bool 
+            determines whether to use session variables to position neurons or to use 
+            df constructed from get_df and clean_interleaved_df functions
+            
         Raises:
         -----------
         self.neuron_locations : dict
@@ -167,6 +171,10 @@ class Session:
         self.resp_train_center : ndarray
             the response spike trains of centered neuron
         """
+
+        if use_df:
+            self._get_neuron_locations_df()
+
         out = tb.is_centered_xy(self.XYch, origin=(0, 0), thresh=thresh, d=d)
         locations = ["excised", "center", "off_center"]
         location_codes = [0, 1, 2]
@@ -180,6 +188,9 @@ class Session:
         self.resp_train_d = {
             k: self.resp_train[self.neuron_locations[k], ...] for k in locations
         }
+    
+    def _get_neuron_locations_df(self):
+        df = self.df 
 
     def _get_neuron_location(self, neuron):
         if self.neuron_locations is not None:
@@ -214,7 +225,7 @@ class Session:
         return coords
 
     def neuron_exclusion(
-        self, thresh=25, d=10, alpha=1, unresponsive_alpha=0, mr_thresh=0.9
+        self, thresh=25, d=10, alpha=1, unresponsive_alpha=0, mr_thresh=0.9,use_df=False
     ):
         """
         Main function that excludes neurons based on the described criteria:
@@ -242,7 +253,7 @@ class Session:
             "unresponsive_alpha": unresponsive_alpha,
             "mr_thresh": mr_thresh,
         }
-        self.get_neuron_locations(thresh=thresh, d=d)
+        self.get_neuron_locations(thresh=thresh, d=d, use_df=use_df)
 
         self.get_mean_sc()
         self.get_mean_fr()
@@ -408,6 +419,8 @@ class Session:
         counts = Counter(full_out.group)
         n_pairs = [counts[num] for num in full_out.group]
         full_out['n_pairs'] = n_pairs
+        self.raw_df = self.df
+        self.df = full_out
 
         return full_out
 
