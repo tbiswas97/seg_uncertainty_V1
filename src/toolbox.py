@@ -1271,6 +1271,39 @@ def crop_RGB(im, spec=None, size=(256, 256), center=True, RGB=True):
 
     return cropped
 
+def _crop(im, spec=None, size=(256, 256), center=True):
+    """
+    Crops an image, parameters specify different methods of cropping, based on toolbox.py -> crop
+
+
+    Parameters:
+    -----------
+    im : array or ndarray
+        can handle array or multiple arrays because of slicer
+    spec : dict
+        {y:(y1,y2),x:(x1,x2)}
+    size : tup
+        crop
+    center : bool
+        Determines whether size parameter is calculated from the center (True) or from the origin
+
+    """
+    if spec is not None:
+        y, Y = spec["y"]
+        x, X = spec["x"]
+        cropped = im[y:Y, x:X]
+    else:
+        if center:
+            margins = np.array(im.shape) - np.array(size)
+            my = margins[0] // 2
+            My = im.shape[0] - my
+            mx = margins[1] // 2
+            Mx = im.shape[1] - mx
+            cropped = im[my:My, mx:Mx]
+        else:
+            cropped = im[0 : size[0], 0 : size[1]]
+
+    return cropped
 
 @slicer
 def crop(im, spec=None, size=(256, 256), center=True):
@@ -1354,7 +1387,7 @@ def get_coord_segment(coord, segmap, origin="center"):
     coord = [int(item) for item in coord]
     ny, nx = coord
     try:
-        return segmap[ny, nx]
+        return int(segmap[ny, nx])
     except IndexError:
         print("Probe is outside of image area")
 
@@ -1374,6 +1407,13 @@ def euclidean_distance(coord1, coord2):
     """
     return math.sqrt((coord2[0] - coord1[0]) ** 2 + (coord2[1] - coord1[1]) ** 2)
 
+def get_polar_coord(coord,origin=[0,0]):
+    x,y = coord
+    r = euclidean_distance(coord,origin)
+    theta = np.arctan2(y,x)
+
+    return r,theta
+    
 
 @slicer
 #put a maximum distance (size of large image)
@@ -1557,4 +1597,3 @@ def mean_match(data1, data2, nboot, nbin):
     }
 
     return d
-
