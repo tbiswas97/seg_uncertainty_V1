@@ -66,9 +66,18 @@ def _calculate_sameness_entropy(coord1,coord2,_map):
     vec1 = _map[:,y1,x1]
     vec2 = _map[:,y2,x2]
 
-    for_entropy = vec1*vec2
+    vec1 = vec1[vec1>1e-5]
+    vec2 = vec2[vec2>1e-5]
 
-    return entropy(for_entropy)
+    to_sum = []
+    for pn in vec1:
+        assert pn>0
+        for pm in vec2:
+            assert pm>0
+            to_sum.append(-pn*pm*np.log(pn*pm))
+    
+    assert ~np.isnan(np.sum(to_sum))
+    return (np.sum(to_sum))
 
 def _calculate_class_entropy(coord,_map):
     assert _map.ndim==3
@@ -106,7 +115,8 @@ def get_uci_at_layer(df,SM,layer=0):
                 coords_list.iloc[i,0],coords_list.iloc[i,1],pmap) for i in range(len(coords_list))
         ],
         "sameness_entropy":[_calculate_sameness_entropy(
-                coords_list.iloc[i,0],coords_list.iloc[i,1],pmap) for i in range(len(coords_list))]
+                coords_list.iloc[i,0],coords_list.iloc[i,1],pmap) for i in range(len(coords_list))
+        ]
     }
 
     segments_df = pd.DataFrame.from_dict(segments)
