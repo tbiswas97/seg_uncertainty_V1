@@ -3,7 +3,7 @@ import import_utils
 import toolbox as tb
 import numpy as np
 import os
-from itertools import combinations
+from itertools import combinations,permutations
 import pandas as pd
 from scipy.spatial import KDTree
 from collections import Counter
@@ -118,14 +118,15 @@ class Session:
                 self.np_coords = self._get_neuron_np_coords()
         else:  # for utah array data
             try:
-                self.n_trials = self.d["T"][0][0]
                 self.resp_large = self.d["resp_large"]
                 self.resp_small = self.d["resp_small"]
                 self.xy_coords = self.d["XYch"]
                 self.n_neurons = len(self.xy_coords)
                 self.np_coords = self._get_neuron_np_coords()
             except:
-                pass
+                if not hasattr(self, "XYch"):
+                    self.XYch = self.RF_SPATIAL[:, :2]
+                    self.xy_coords = [coord for coord in self.XYch]
 
     def get_exp_info(self):
         if len(self.resp_train.shape) == 5:
@@ -140,16 +141,44 @@ class Session:
                 "n_ms": n_ms,
             }
         elif len(self.resp_train.shape) == 4:
-            n_neurons, n_images, n_trials, n_ms = self.resp_train[:, :, :, :].shape
+            self._reshape_resp_train()
+            n_neurons, n_conditions, n_images, n_trials, n_ms = self.resp_train[
+                :, :, :, :, :
+            ].shape
             self.exp_info = {
                 "n_neurons": n_neurons,
+                "n_conditions": n_conditions,
                 "n_images": n_images,
                 "n_trials": n_trials,
                 "n_ms": n_ms,
             }
+        #elif len(self.resp_train.shape) == 4:
+            #n_neurons, n_images, n_trials, n_ms = self.resp_train[:, :, :, :].shape
+            #self.exp_info = {
+                #"n_neurons": n_neurons,
+                #"n_images": n_images,
+                #"n_trials": n_trials,
+                #"n_ms": n_ms,
+            #}
+    
+    def _reshape_resp_train(self):
+        resp_train = {}
+
+        for key in ["small","large"]:
+            resp_train[key] = self.resp_train[
+                :,SMALL_LARGE_IDXS[key]::2,:,:
+            ]
+
+            resp_train[key] = np.expand_dims(resp_train[key],axis=1)
+        
+        to_concat = [resp_train[key] for key in ["small","large"]]
+        new = np.concatenate(to_concat,axis=1)
+
+        self.resp_train = new
         
 
-    def get_neuron_locations(self, thresh=25, d=10,use_df=False):
+
+    def get_neuron_locations(self, thresh=25, d=10):
         """
         Splits neurons into three pools: center, off-center, and excised.
 
@@ -172,9 +201,6 @@ class Session:
             the response spike trains of centered neuron
         """
 
-        if use_df:
-            self._get_neuron_locations_df()
-
         out = tb.is_centered_xy(self.XYch, origin=(0, 0), thresh=thresh, d=d)
         locations = ["excised", "center", "off_center"]
         location_codes = [0, 1, 2]
@@ -188,9 +214,6 @@ class Session:
         self.resp_train_d = {
             k: self.resp_train[self.neuron_locations[k], ...] for k in locations
         }
-    
-    def _get_neuron_locations_df(self):
-        df = self.df 
 
     def _get_neuron_location(self, neuron):
         if self.neuron_locations is not None:
@@ -225,7 +248,13 @@ class Session:
         return coords
 
     def neuron_exclusion(
-        self, thresh=25, d=10, alpha=1, unresponsive_alpha=0, mr_thresh=0.9,use_df=False
+        self,
+        thresh=25,
+        d=10, 
+        alpha=1, 
+        unresponsive_alpha=0, 
+        mr_thresh=0.9,
+        use_session_vars=False
     ):
         """
         Main function that excludes neurons based on the described criteria:
@@ -253,15 +282,18 @@ class Session:
             "unresponsive_alpha": unresponsive_alpha,
             "mr_thresh": mr_thresh,
         }
-        self.get_neuron_locations(thresh=thresh, d=d, use_df=use_df)
+        self.get_neuron_locations(thresh=thresh, d=d)
 
-        self.get_mean_sc()
-        self.get_mean_fr()
-        self.get_thresholds(alpha=alpha, unresponsive_alpha=unresponsive_alpha)
+        self.get_mean_sc(use_session_vars=use_session_vars)
+        self.get_mean_fr(use_session_vars=use_session_vars)
+        self.get_thresholds(
+            alpha=alpha, 
+            unresponsive_alpha=unresponsive_alpha,
+            use_session_vars=use_session_vars)
 
         if mr_thresh is not None:
             self.neuron_locations_mr = {}
-            self.get_neuron_modulation_ratio()
+            self.get_neuron_modulation_ratio(use_session_vars=use_session_vars)
             self.neuron_locations_mr["center"] = self.neuron_locations["center"][
                 (self.MM_large / self.MM_small)[
                     np.asarray(range(self.exp_info["n_neurons"])),
@@ -307,128 +339,18 @@ class Session:
             ),
         }
 
-        self.masked = True
-
-    def clean_interleaved_df(self):
-        """
-        Used if small/large images are interleaved
-
-        Parameters:
-        -----------
-        self.df : DataFrame
-            starts from this 
-        
-        Returns:
-        df : DataFrame 
-
-        """
-        #number of ims in the dataframe:
-        df = self.df
-        n_ims = len(np.unique(df.img_idx.values))
-        #each group is a small/large image 
-        n_groups = n_ims//2
-
-        df.insert(
-            0,
-            "group",
-            np.concatenate(
-                [np.asarray(
-                    [i]*df.n_pairs[0]*2) 
-                    for i in range(n_groups)]
-                )
-            )
-
-        #column names to check:
-        check_these = [
-            "neuron1_xy_coord",
-            "neuron2_xy_coord",
-            "rsc_small",
-            "rsc_large"
-        ]
-        
-        #column names to drop
-        drop_these = [
-            "rsc_small",
-            "rsc_large"
-        ]
-
-        full_df_to_concat = []
-
-        for group in range(n_groups):
-            sdf = df.loc[df.group==group]
-            #filter out NaN coordinates and NaN rscs
-            valid_idxs = sdf.loc[:,check_these].dropna().index
-            valid=sdf.loc[valid_idxs,:]
-            #get column names (for later) after dropping necessary columns
-            colnames = list(valid.drop(drop_these,axis=1))
-            #only use pairs that show up twice (once in small image, once in large)
-            pair_counts = pd.DataFrame.from_dict(
-                Counter(valid.pair_idx),orient="index").reset_index().rename(
-                    {"index":"pair_idx",0:"c"},axis=1
-                )
-            
-            #reindex valid with pair_idxs (for speed)
-            valid_r = valid.set_index("pair_idx",drop=False)
-            new_idx = pd.Index(pair_counts.loc[pair_counts.c==2,"pair_idx"].values)
-            #df with matched pairs
-            mdf = valid_r.loc[new_idx]
-            mdf['temp'] = mdf['rsc_small']-mdf['rsc_large']
-            #calculate delta rsc for matched pairs
-            pv = mdf.pivot_table(
-                index="pair_idx",
-                values=[
-                    "temp",
-                    "rsc_small",
-                    "rsc_large"
-                ],
-                aggfunc=np.sum
-            ).reset_index() #this pivot table has delta rscs for matched pairs
-            #drop temporary and unncessary variables from mdf
-            mdf.drop(["img_idx","rsc_small","rsc_large","temp"],axis=1,inplace=True)
-            colnames.pop(1)
-            #finalize pv values:
-            pv['rsc_small']=pv['rsc_small']+2
-            pv['rsc_large']=pv['rsc_large']+2
-            pv.rename({
-                "temp":"delta_rsc"
-            },axis=1,inplace=True)
-            pv.drop("pair_idx",axis=1,inplace=True)
-            pv=pv.loc[:,["rsc_small","rsc_large","delta_rsc"]]
-            #drop duplicates from matched df, sort, and reset index
-            mdf.drop_duplicates(
-                subset="pair_idx",inplace=True
-            )
-            mdf.sort_values(
-                "pair_idx",inplace=True
-            )
-            mdf.reset_index(
-                drop=True,inplace=True
-            )
-
-            out = pd.concat([mdf,pv],axis=1,ignore_index=True)
-
-            colnames = colnames + drop_these + ["delta_rsc"]
-
-            out.rename(
-                {k:v for k,v in zip(out.columns,colnames)},axis=1,inplace=True
-            )
-
-            full_df_to_concat.append(out)
-
-        full_out = pd.concat(full_df_to_concat,axis=0,ignore_index=True)
-        counts = Counter(full_out.group)
-        n_pairs = [counts[num] for num in full_out.group]
-        full_out['n_pairs'] = n_pairs
-        self.raw_df = self.df
-        self.df = full_out
-
-        return full_out
+        self._neuron_exclusion=True
 
     def get_df(
-        self, sample_ims=1, sample_neurons=1, random=False, calculate_delta_rsc=False
+        self, 
+        sample_ims=1, 
+        sample_neurons=1, 
+        random=False, 
+        calculate_delta_rsc=False,
+        clean=False
     ):
         all_possible_pairs = list(
-            combinations(list(range(self.exp_info["n_neurons"])), 2)
+            permutations(list(range(self.exp_info["n_neurons"])), 2)
         )
 
         self.pair_lut = {
@@ -461,11 +383,24 @@ class Session:
             self.neuron_delta_rsc_lookup = self.df.pivot_table(
                 index=["img_idx", "neuron1"], columns="neuron2", values="delta_rsc"
             )
+        if clean: 
+            check_these = [
+                "neuron1_xy_coord",
+                "neuron2_xy_coord",
+                "rsc_small",
+                "rsc_large"
+            ]
 
+            valid_idxs = df.loc[:,check_these].dropna().index
+
+            valid = df.loc[valid_idxs,:]
+
+            out = valid
+            self.df = valid
 
         return out
 
-    def _get_im_df(self, im, sample_neurons=1):
+    def _get_im_df(self, im, sample_neurons=None):
         responsive_neurons = self._get_responsive_neurons_at_image(im)
         responsive_neurons = [int(neuron) for neuron in responsive_neurons]
         pairs = list(combinations(responsive_neurons, 2))
@@ -477,9 +412,6 @@ class Session:
         d = {}
         origin = [0, 0]
 
-        if not hasattr(self, "XYch"):
-            self.XYch = self.RF_SPATIAL[:, :2]
-            self.xy_coords = [coord for coord in self.XYch]
 
         if not hasattr(self, "np_coords"):
             self.np_coords = self._get_neuron_np_coords()
@@ -492,12 +424,24 @@ class Session:
         d["neuron1_distance_from_origin"] = [
             tb.euclidean_distance(self.XYch[pair[0]], origin) for pair in pairs
         ]
+        d["neuron1_r"] = [
+            tb.get_polar_coord(self.XYch[pair[0]], origin=origin)[0] for pair in pairs
+        ]
+        d["neuron1_theta"] = [
+            tb.get_polar_coord(self.XYch[pair[0]], origin=origin)[1] for pair in pairs
+        ]
         d["neuron1_pos"] = [self._get_neuron_location(pair[0]) for pair in pairs]
         d["neuron1_xy_coord"] = [parse_nan(self.XYch[pair[0]]) for pair in pairs]
         d["neuron1_np_coord"] = [self.np_coords[pair[0]] for pair in pairs]
         d["neuron2"] = [pair[1] for pair in pairs]
         d["neuron2_distance_from_origin"] = [
             tb.euclidean_distance(self.XYch[pair[1]], origin) for pair in pairs
+        ]
+        d["neuron2_r"] = [
+            tb.get_polar_coord(self.XYch[pair[1]], origin=origin)[0] for pair in pairs
+        ]
+        d["neuron2_theta"] = [
+            tb.get_polar_coord(self.XYch[pair[1]], origin=origin)[1] for pair in pairs
         ]
         d["neuron2_pos"] = [self._get_neuron_location(pair[1]) for pair in pairs]
         d["neuron2_xy_coord"] = [parse_nan(self.XYch[pair[1]]) for pair in pairs]
@@ -679,10 +623,23 @@ class Session:
 
         return out
 
-    def get_neuron_modulation_ratio(self):
-        self.modulation_ratios = (self.MM_large / self.MM_small)[
-            np.asarray(range(len(self.MM_large))), np.argmax(self.MM_small, axis=1)
-        ]
+    def get_neuron_modulation_ratio(self,use_session_vars=True):
+        if use_session_vars:
+            self.modulation_ratios = (self.MM_large / self.MM_small)[
+                np.asarray(range(len(self.MM_large))), np.argmax(self.MM_small, axis=1)
+            ]
+        else:
+            self._get_MM()
+            self.modulation_ratios = (self.MM_large / self.MM_small)[
+                np.asarray(range(len(self.MM_large))), np.argmax(self.MM_small, axis=1)
+            ]
+
+    def _get_MM(self):
+        self.MM_small = self.resp_train.sum(axis=-1)[
+            :,SMALL_LARGE_IDXS["small"],...].mean(axis=-1)
+
+        self.MM_large = self.resp_train.sum(axis=-1)[
+            :,SMALL_LARGE_IDXS["large"],...].mean(axis=-1)
 
     def _get_neuron_modulation_ratio(self, idx, location):
         if location == "center":
@@ -731,16 +688,19 @@ class Session:
         return out
 
     def get_mean_sc(self, use_session_vars=True):
-        fr_small = self.MM_small / 1
-        fr_large = self.MM_large / 1
-
         if use_session_vars:
+            fr_small = self.MM_small / 1
+            fr_large = self.MM_large / 1
+
             self.mean_scs = {
                 "center_small": fr_small[self.neuron_locations["center"]],
                 "center_large": fr_large[self.neuron_locations["center"]],
                 "off_center_small": fr_small[self.neuron_locations["off_center"]],
                 "off_center_large": fr_large[self.neuron_locations["off_center"]],
             }
+        else:
+            pass
+            #TODO: write this case
 
     def get_mean_fr(self, use_session_vars=True):
         locations = ["center", "center", "off_center", "off_center"]
@@ -1442,4 +1402,5 @@ for name, fn in inspect.getmembers(Session, inspect.isfunction):
         if name != "_get_pseudoneuron_responses":
             if name != "pseudosegment":
                 if name != "_lookup_delta_rsc":
-                    setattr(Session, name, memoize(fn))
+                    if name!= "_get_responsive_neurons_at_image":
+                        setattr(Session, name, memoize(fn))
