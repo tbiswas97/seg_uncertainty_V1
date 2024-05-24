@@ -9,6 +9,7 @@ Model a: independent layers
 Model b: single prior probability map 
 Model c: smoothed prior probability maps
 """
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -153,7 +154,7 @@ def model_a(
     gmm=True,
     light=True,
     verbose=None,
-    keep=False
+    keep=False,
 ):
     model = copy.deepcopy(model)
     ny, nx = im.shape[:2]
@@ -245,7 +246,7 @@ def model_a(
             k += 1
 
     if keep:
-        return res #proba_maps, lkl_smm, lkl_gmm
+        return res  # proba_maps, lkl_smm, lkl_gmm
     else:
         return res
 
@@ -607,7 +608,7 @@ def model_c(
     gmm=False,
     light=True,
     verbose=True,
-    keep=False
+    keep=False,
 ):
     model = copy.deepcopy(model)
     ny, nx = im.shape[:2]
@@ -936,6 +937,6 @@ def model_c(
                 # res[l,k,2,0].taus = np.float32(res[l,k,2,0].taus)
 
     if keep:
-        return res,proba_maps#, lkl_smm, lkl_gmm
+        return res, proba_maps  # , lkl_smm, lkl_gmm
     else:
         return res
