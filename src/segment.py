@@ -15,6 +15,14 @@ from joblib import dump, load
 # select device
 device = torch.device("cpu")
 # load model and send it to device for evaluation only
+#TODO:the parameter "pretrained" is deprecrtaed and may be removed, please used "weights" instead 
+#from torchvision.models import VGG_19.Weights
+#weights = VGG_19.Weights.DEFAULT
+#or 
+#weights = VGG_19.Weights.IMAGENET1K_V1
+#or use strings
+#weights = "DEFAULT"
+#weights = "IMAGENET1K_V1"
 pretrained = True
 deepnet = models.vgg19(pretrained=pretrained).features.to(device).eval()
 # number of layers (max 16)
@@ -64,7 +72,12 @@ def make_image_stack(dat, n_im=None):
 
 
 # MODEL SELECTION
-def _fit_model(dat, model_type="ref", n_components=np.array([3])):
+def _fit_model(
+        dat,
+        model_type="ref",
+        n_components=np.array([3]),
+        keep=False
+    ):
     """
     Use to fit segmentation map to input image
     Parameters:
@@ -184,15 +197,24 @@ def _fit_model(dat, model_type="ref", n_components=np.array([3])):
             light=light,
             n_pca=n_pca,
             verbose=False,
+            keep=keep
         )
 
+        if keep:
+            res_arr,proba_maps = _fit(im)
+        else:
+            res_arr = _fit(im)
     #res_arr = np.asarray([_fit(im) for im in im_all])
-    res_arr = _fit(im)
+    if not keep:
+        res_arr = _fit(im)
 
     if len(res_arr) == 1:
         res_arr = res_arr[0]
 
-    return res_arr
+    if keep:
+        return res_arr, proba_maps
+    else: 
+        return res_arr
 
 def _gen_seg_map_from_weights(weights, size):
     Ny,Nx = size
