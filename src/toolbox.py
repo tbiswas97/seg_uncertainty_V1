@@ -1417,7 +1417,7 @@ def get_polar_coord(coord,origin=[0,0]):
 
 @slicer
 #put a maximum distance (size of large image)
-def is_centered_xy(coord, origin=[0, 0], thresh=25, d=0):
+def is_centered_xy(coord, origin=[0, 0], thresh=25, d=0) -> int: 
     """
     Determines whether a coordinate is in the center of an image.
     """
