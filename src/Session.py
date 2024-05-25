@@ -260,7 +260,7 @@ class Session:
         alpha=1,
         unresponsive_alpha=0,
         mr_thresh=0.9,
-        use_session_vars=False,
+        use_session_vars=True,
     ):
         """
         Main function that excludes neurons based on the described criteria:
@@ -278,6 +278,9 @@ class Session:
             included neurons that should be unresponsive
         mr_thresh : float
             a threshold for neuron modulation ratios
+        use_session_vars : bool
+            if False, metrics are calculated from the spike train itself 
+            if True metrics are calculated from fields in the Session object (.mat file)
 
         """
         # neuron exclusions
