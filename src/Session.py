@@ -190,21 +190,19 @@ class Session:
         d : int
             Neurons between this radius and thresh (in pixels) are considered on the border and are excised.
             Neurons outside of the radius thresh + d are considered off-center
-        use_df : bool
-            determines whether to use session variables to position neurons or to use
-            df constructed from get_df and clean_interleaved_df functions
 
         Raises:
         -----------
         self.neuron_locations : dict
             contains the indexes of the neurons that are 'center','off_center',and 'excised'
-        self.resp_train_center : ndarray
+        self.resp_train : ndarray
             the response spike trains of centered neuron
         """
 
         out = tb.is_centered_xy(self.XYch, origin=(0, 0), thresh=thresh, d=d)
         locations = ["excised", "center", "off_center"]
         location_codes = [0, 1, 2]
+        #codes match the output of tb.is_centered_xy
 
         temp = zip(locations, location_codes)
 
@@ -260,6 +258,7 @@ class Session:
         alpha=1,
         unresponsive_alpha=0,
         mr_thresh=0.9,
+        annular_excision=True,
         use_session_vars=True,
     ):
         """
@@ -272,12 +271,16 @@ class Session:
             a distance threshold below which neurons are considered to be "center"
         d : float
             (thresh+d) is the distance threshold above which neurons are considered to be "off_center"
+            neurons between thresh and thresh+d are considered "excised"
         alpha : float
             excluded neurons are those with activity below
         unresponsive_alpha : float
             included neurons that should be unresponsive
         mr_thresh : float
             a threshold for neuron modulation ratios
+        annular_excision: bool 
+            if True, then the "excised" neurons are excluded from downstream analysis 
+            if False, then the "excised" neurons are reassigned to be "off_center"
         use_session_vars : bool
             if False, metrics are calculated from the spike train itself 
             if True metrics are calculated from fields in the Session object (.mat file)
@@ -290,8 +293,22 @@ class Session:
             "alpha": alpha,
             "unresponsive_alpha": unresponsive_alpha,
             "mr_thresh": mr_thresh,
+            "annular_excision":annular_excision
         }
-        self.get_neuron_locations(thresh=thresh, d=d)
+
+        if annular_excision:
+            self.get_neuron_locations(thresh=thresh, d=d)
+        else:
+            self.get_neuron_locations(thresh=thresh, d=d)
+            concat = np.concatenate([
+                self.neuron_locations["off_center"],
+                self.neuron_locations["excised"]])
+
+            d = {
+                "center":self.neuron_locations["center"],
+                "off_center": concat
+            }
+            self.neuron_locations = d
 
         self.get_mean_sc(use_session_vars=use_session_vars)
         self.get_mean_fr(use_session_vars=use_session_vars)
