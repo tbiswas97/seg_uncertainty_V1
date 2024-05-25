@@ -191,7 +191,8 @@ class SegmentationMap:
         layer_step=4,
         binning=False,
         use_crop=False,
-        use_grayscale=False
+        use_grayscale=False,
+        keep=False
     ):
         """
         Runs perceptual segmentation model on self.im
@@ -245,21 +246,37 @@ class SegmentationMap:
             model_im = self.make_grayscale(model_im)
             model_im = import_utils.norm_im(model_im)
 
+        if keep:
+            if "a" in model:
+                self.model_res["a"] = seg._fit_model(
+                    model_im, model_type="a", n_components=n_components
+                )
+            # run model 'b'
+            if "b" in model:
+                self.model_res["b"] = seg._fit_model(
+                    model_im, model_type="b", n_components=n_components
+                )
+            # run model 'c'
+            if "c" in model:
+                self.model_res["c"], self.proba_maps = seg._fit_model(
+                    model_im, model_type="c", n_components=n_components,keep=keep
+                )
+        else:
         # run model 'a'
-        if "a" in model:
-            self.model_res["a"] = seg._fit_model(
-                model_im, model_type="a", n_components=n_components
-            )
-        # run model 'b'
-        if "b" in model:
-            self.model_res["b"] = seg._fit_model(
-                model_im, model_type="b", n_components=n_components
-            )
-        # run model 'c'
-        if "c" in model:
-            self.model_res["c"] = seg._fit_model(
-                model_im, model_type="c", n_components=n_components
-            )
+            if "a" in model:
+                self.model_res["a"] = seg._fit_model(
+                    model_im, model_type="a", n_components=n_components
+                )
+            # run model 'b'
+            if "b" in model:
+                self.model_res["b"] = seg._fit_model(
+                    model_im, model_type="b", n_components=n_components
+                )
+            # run model 'c'
+            if "c" in model:
+                self.model_res["c"] = seg._fit_model(
+                    model_im, model_type="c", n_components=n_components
+                )
         d = self.model_res
 
         # gen nested dictionary for seg maps
