@@ -459,6 +459,7 @@ class Session:
     def _get_im_df(self, im, sample_neurons=None, analysis="pairwise"):
         responsive_neurons = self._get_responsive_neurons_at_image(im)
         responsive_neurons = [int(neuron) for neuron in responsive_neurons]
+        parse_nan = lambda x: x if (x == x).any() else np.nan
         if analysis == "pairwise":
             pairs = list(combinations(responsive_neurons, 2))
 
@@ -471,8 +472,6 @@ class Session:
 
             if not hasattr(self, "np_coords"):
                 self.np_coords = self._get_neuron_np_coords()
-
-            parse_nan = lambda x: x if (x == x).any() else np.nan
 
             d["img_idx"] = [im] * len(pairs)
             d["pairs"] = pairs
@@ -548,7 +547,8 @@ class Session:
                 tb.get_polar_coord(self.XYch[neuron], origin=origin)[1] for neuron in responsive_neurons
             ]
             d["pos"] = [self._get_neuron_location(neuron) for neuron in responsive_neurons]
-            d["xy_coord"]
+            d["xy_coord"] = [parse_nan(self.XYch[neuron] for neuron in responsive_neurons)]
+            d["np_coord"] = [self.np_coords[neuron] for neuron in responsive_neurons]
             
     def get_neuron_info(self):
         """
@@ -759,9 +759,24 @@ class Session:
         return out
 
     def get_mean_sc(self, use_session_vars=True):
+        """
+        Returns the spike count mean, variance, and Fano Factor 
+
+        Params:
+        --------
+        use_session_vars : determines whether SC mean, var, and FF are calculated from the Session
+            or directly from the spike train
+        """
         if use_session_vars:
+            #although called fr, these variables are looking at spike count
             fr_small = self.MM_small / 1
             fr_large = self.MM_large / 1
+
+            fr_small_var = self.VV_small / 1
+            fr_large_var = self.VV_large / 1
+
+            fr_small_ff = self.FF_small / 1
+            fr_large_ff = self.FF_large / 1
 
             self.mean_scs = {
                 "center_small": fr_small[self.neuron_locations["center"]],
@@ -769,6 +784,21 @@ class Session:
                 "off_center_small": fr_small[self.neuron_locations["off_center"]],
                 "off_center_large": fr_large[self.neuron_locations["off_center"]],
             }
+
+            self.var_scs = {
+                "center_small": fr_small_var[self.neuron_locations["center"]],
+                "center_large": fr_large_var[self.neuron_locations["center"]],
+                "off_center_small": fr_small_var[self.neuron_locations["off_center"]],
+                "off_center_large": fr_large_var[self.neuron_locations["off_center"]],
+            }
+
+            self.ff_scs = {
+                "center_small": fr_small_ff[self.neuron_locations["center"]],
+                "center_large": fr_large_ff[self.neuron_locations["center"]],
+                "off_center_small": fr_small_ff[self.neuron_locations["off_center"]],
+                "off_center_large": fr_large_ff[self.neuron_locations["off_center"]],
+            }
+
         else:
             pass
             # TODO: write this case
