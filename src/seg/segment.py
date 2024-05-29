@@ -1,5 +1,5 @@
-from models_deep_seg import *
-from pyramid import *
+from seg.models_deep_seg import *
+from seg.pyramid import *
 
 import datetime
 import os
