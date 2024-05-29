@@ -5,7 +5,7 @@ import numpy as np
 from scipy.stats import mannwhitneyu
 import pandas as pd
 import seaborn as sns
-import segment as seg
+import seg.segment as seg
 from itertools import combinations
 from Session import Session as Sess
 from Session import DEFAULT_PROBES
