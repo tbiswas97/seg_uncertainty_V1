@@ -12,9 +12,15 @@ out
 *.png
 venv
 src/seg-model-example
-src/segmentation
+src/segmentation_old
 src/image_outpainting
 src/Session_exclusion_criteria
 src/vseg
 src/__*
 *.html
+*.gif
+run*_*.py
+__pycache__/*
+*/__pycache__/*
+*.pyc
+
