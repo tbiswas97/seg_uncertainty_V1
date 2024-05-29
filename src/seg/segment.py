@@ -253,6 +253,50 @@ def _gen_seg_map(res, N_list, standard_size=True):
 
     return np.asarray(out)
 
+def _reshape_model_weights(SM,layers_of_interest=None):
+    d = SM.model_res
+    SM.model = d.keys()[0]
+    SM.n_components = d[SM.model].keys()[0]
+    SM.pmaps = {}
+    for key in d.keys():
+        #self.seg_maps[key] = {}
+        SM.pmaps[key] = {}
+        n_n_components = d[key].shape[1]
+
+        # different values of i will have different n_components
+        for i in range(n_n_components):
+            # index 2 below is the index for the smm object
+            #layer 0
+            smm = d[key][0, i, 2, 0]
+            #layer 16
+            smm_last = d[key][-1, i, 2, 0]
+            Ny, Nx = smm.im_shape
+            _Ny, _Nx = smm_last.im_shape
+            SM.pmaps[key][smm.n_components] = []
+            if layers_of_interest is not None:
+                layers = d[key][
+                    layers_of_interest, i, 2, 0
+                ]  # generates seg map from every 4th layer
+            else:
+                layers = d[key][
+                    LAYER_START:LAYER_STOP:LAYER_STEP, i, 2, 0
+                ]  # generates seg map from every 4th layer
+
+            for layer in layers:
+                ny, nx = layer.im_shape
+                pmap = layer.weights_.reshape((ny,nx,layer.n_components))
+                #reshape so that the component probabilities are the first dimension
+                pmap = np.moveaxis(pmap,-1,0)
+
+                if ny != Ny:
+                    assert Ny // ny == Nx // nx
+                    multiplier = Ny // ny
+                    m = multiplier
+                    pmap = pmap.repeat(m, 1).repeat(m, 2)
+
+                SM.pmaps[key][smm.n_components].append(pmap)
+
+    return None
 
 def main(model_type="a"):
     """
