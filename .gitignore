@@ -23,4 +23,6 @@ run*_*.py
 __pycache__/*
 */__pycache__/*
 *.pyc
+*.jpg
+*.pdf
 
