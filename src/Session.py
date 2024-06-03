@@ -30,7 +30,7 @@ class Session:
     Initiate from session .mat file
     """
 
-    def __init__(self, mat, _type="utah", neuron_exclusion=True):
+    def __init__(self, mat, _type="utah", neuron_exclusion=True,im_size=(320,320)):
         """
         Initializes Session object from .mat file 
 
@@ -71,6 +71,7 @@ class Session:
 
         self.fields = list(self.d.keys())
         self._type = _type
+        self.im_size = im_size
         # probes are 1-indexed NOT 0-indexed so we must subtract 1
         if _type == "utah":
             self.use_probe(num=None)
@@ -92,6 +93,11 @@ class Session:
                 self.__dict__[key] = np.concatenate([slc for slc in self.__dict__[key]])
             self.xy_coords = self.XYch
             self.np_coords = self._get_neuron_np_coords()
+            if neuron_exclusion:
+                self.neuron_exclusion()
+            else:
+                self._neuron_exclusion = False
+                self.neuron_locations = None
             #TODO: check neuron exclusion for neuropixel
 
     def use_probe(self, num=1) -> None:
@@ -245,7 +251,7 @@ class Session:
             if self.probe:
                 list of coords for the given probe
         """
-        _transform = lambda x: tb.transform_coord_system(x) if transform else x
+        _transform = lambda x: tb.transform_coord_system(x,size=self.im_size) if transform else x
         coords_list = self.xy_coords
         coords = [_transform(item) for item in coords_list]
 
@@ -456,10 +462,32 @@ class Session:
 
             out = pd.concat(to_concat, ignore_index=True)
 
+            return out
+
     def _get_im_df(self, im, sample_neurons=None, analysis="pairwise"):
+        """
+        Extracts the meaningful info from a given image
+        
+        Params:
+        -------
+        im : int 
+            Image index
+        
+        sample_neurons : float 
+            between 0 and 1, if sampling a fraction of neurons 
+        
+        analysis : str
+            "single-neuron" : extracts single-neuron metrics (default to using Session vars) 
+            "pairwise" : extracts pairwise metrics (R_sc)
+        """
         responsive_neurons = self._get_responsive_neurons_at_image(im)
         responsive_neurons = [int(neuron) for neuron in responsive_neurons]
         parse_nan = lambda x: x if (x == x).any() else np.nan
+        origin = [0, 0]
+
+        if not hasattr(self, "np_coords"):
+            self.np_coords = self._get_neuron_np_coords()
+
         if analysis == "pairwise":
             pairs = list(combinations(responsive_neurons, 2))
 
@@ -468,10 +496,6 @@ class Session:
                 pairs = random.sample(pairs, n_sample)
 
             d = {}
-            origin = [0, 0]
-
-            if not hasattr(self, "np_coords"):
-                self.np_coords = self._get_neuron_np_coords()
 
             d["img_idx"] = [im] * len(pairs)
             d["pairs"] = pairs
@@ -534,22 +558,60 @@ class Session:
             return df
         elif analysis == "single-neuron":
             #responsive_neurons are all the neurons responding in this particular image
+            #FOR SMALL PRESENTATION 
             d = {}
             d["img_idx"] = [im]*len(responsive_neurons)
+            d["presentation"] = ["small"]*len(responsive_neurons)
             d["neuron"] = responsive_neurons
-            d["distance_from_origin"] = [
+            d["neuron_distance_from_origin"] = [
                 tb.euclidean_distance(self.XYch[neuron], origin) for neuron in responsive_neurons
             ]
-            d["r"] = [
+            d["neuron_r"] = [
                 tb.get_polar_coord(self.XYch[neuron], origin=origin)[0] for neuron in responsive_neurons
             ]
-            d["theta"] = [
+            d["neuron_theta"] = [
                 tb.get_polar_coord(self.XYch[neuron], origin=origin)[1] for neuron in responsive_neurons
             ]
-            d["pos"] = [self._get_neuron_location(neuron) for neuron in responsive_neurons]
-            d["xy_coord"] = [parse_nan(self.XYch[neuron] for neuron in responsive_neurons)]
-            d["np_coord"] = [self.np_coords[neuron] for neuron in responsive_neurons]
+            d["neuron_xy_coord"] = [parse_nan(self.XYch[neuron]) for neuron in responsive_neurons]
+            d["neuron_np_coord"] = [self.np_coords[neuron] for neuron in responsive_neurons]
+            d["neuron_mean_sc"] = [self.MM_small[neuron,im] for neuron in responsive_neurons]
+            d["neuron_var_sc"] = [self.VV_small[neuron,im] for neuron in responsive_neurons]
+            d["neuron_ff_sc"] = [self.FF_small[neuron,im] for neuron in responsive_neurons]
+            d["neuron_modulation_ratio"] = [self.MM_large[neuron,im]/self.MM_small[neuron,im] for neuron in responsive_neurons]
+
+            #FOR LARGE PRESENTATION
+            dd = {}
+            dd["img_idx"] = [im]*len(responsive_neurons)
+            dd["presentation"] = ["large"]*len(responsive_neurons)
+            dd["neuron"] = responsive_neurons
+            dd["neuron_distance_from_origin"] = [
+                tb.euclidean_distance(self.XYch[neuron], origin) for neuron in responsive_neurons
+            ]
+            dd["neuron_r"] = [
+                tb.get_polar_coord(self.XYch[neuron], origin=origin)[0] for neuron in responsive_neurons
+            ]
+            dd["neuron_theta"] = [
+                tb.get_polar_coord(self.XYch[neuron], origin=origin)[1] for neuron in responsive_neurons
+            ]
+            dd["neuron_xy_coord"] = [parse_nan(self.XYch[neuron]) for neuron in responsive_neurons]
+            dd["neuron_np_coord"] = [self.np_coords[neuron] for neuron in responsive_neurons]
+            dd["neuron_mean_sc"] = [self.MM_large[neuron,im] for neuron in responsive_neurons]
+            dd["neuron_var_sc"] = [self.VV_large[neuron,im] for neuron in responsive_neurons]
+            dd["neuron_ff_sc"] = [self.FF_large[neuron,im] for neuron in responsive_neurons]
+            dd["neuron_modulation_ratio"] = [self.MM_large[neuron,im]/self.MM_small[neuron,im] for neuron in responsive_neurons]
+
+            if self._neuron_exclusion: 
+                d["neuron_pos"] = [self._get_neuron_location(neuron) for neuron in responsive_neurons]
+                dd["neuron_pos"] = [self._get_neuron_location(neuron) for neuron in responsive_neurons]
+
+            #CONCAT DFS: 
+            df_small = pd.DataFrame.from_dict(d)
+            df_large = pd.DataFrame.from_dict(dd)
             
+            df = pd.concat([df_small,df_large],ignore_index=True)
+
+            return df
+    
     def get_neuron_info(self):
         """
         Outputs a dataframe with positional and index information for all center and off_center neurons
