@@ -24,7 +24,9 @@ from glob import glob as glob
 from matplotlib import image
 from collections import Counter
 import math
+import pandas as pd
 
+from sklearn import linear_model
 from sklearn.feature_extraction.image import extract_patches_2d
 from sklearn.metrics.cluster import contingency_matrix
 
@@ -1543,6 +1545,18 @@ def nan_softmax(x):
 
     return out
 
+def _get_surround_coordinates(center=[0,0],r=25,spokes=16):
+    surround = np.asarray([
+        (r*np.sin(np.linspace(0,2*np.pi,spokes))).astype(int),
+        (r*np.cos(np.linspace(0,2*np.pi,spokes))).astype(int)  
+    ]).T
+    
+    coords = [
+        np.asarray([[center[0]+row[0],center[1]+row[1]] for row in surround])
+    ]
+    
+    return coords
+
 def mean_match(data1, data2, nboot, nbin):
 
 
@@ -1597,3 +1611,31 @@ def mean_match(data1, data2, nboot, nbin):
     }
 
     return d
+
+def df_regress(reg,df,X_labels=None,y_labels=None,index_tag=None) -> pd.DataFrame:
+    """
+    Computes a linear regression given DataFrame labels, and returns a DataFrame
+    """
+    if type(X_labels) is str:
+        X_labels = [X_labels]
+
+    y = df.loc[:,y_labels].values
+
+    if y.ndim < 2: 
+        y = y[...,np.newaxis]
+    
+    X = df.loc[:,X_labels].values
+
+    if X.ndim < 2: 
+        X = X[...,np.newaxis]
+
+    res = reg.fit(X,y)
+    score = reg.score(X,y)
+
+    d = {
+        "index": index_tag,
+        "coefs":[res.coef_.squeeze()],
+        "r2 | {}".format(y_labels) : [score]
+    }
+
+    return pd.DataFrame.from_dict(d)
