@@ -6,7 +6,6 @@ Jonathan Vacher, November 2017
 
 """
 
-
 from re import A
 import decorator
 import numpy as np
@@ -25,7 +24,9 @@ from matplotlib import image
 from collections import Counter
 import math
 import pandas as pd
+import statsmodels.api as sm
 
+from sklearn.feature_selection import f_regression
 from sklearn import linear_model
 from sklearn.feature_extraction.image import extract_patches_2d
 from sklearn.metrics.cluster import contingency_matrix
@@ -966,9 +967,7 @@ def get_features(
     d_neigh = (neigh_size - 1) // 2
     n_patch = (M - 2 * sub_samp * d_neigh) * (N - 2 * sub_samp * d_neigh)
     if fuse_sc:
-        x = np.zeros(
-            (1, n_patch, ((1 + cplx) * n_sc * n_th + lum_col) * neigh_size**2)
-        )
+        x = np.zeros((1, n_patch, ((1 + cplx) * n_sc * n_th + lum_col) * neigh_size**2))
         all_bands = np.zeros((M, N, n_th * n_sc), dtype=np.complex128)
         for s in range(n_sc):
             for k in range(n_th):
@@ -1273,6 +1272,7 @@ def crop_RGB(im, spec=None, size=(256, 256), center=True, RGB=True):
 
     return cropped
 
+
 def _crop(im, spec=None, size=(256, 256), center=True):
     """
     Crops an image, parameters specify different methods of cropping, based on toolbox.py -> crop
@@ -1306,6 +1306,7 @@ def _crop(im, spec=None, size=(256, 256), center=True):
             cropped = im[0 : size[0], 0 : size[1]]
 
     return cropped
+
 
 @slicer
 def crop(im, spec=None, size=(256, 256), center=True):
@@ -1342,13 +1343,15 @@ def crop(im, spec=None, size=(256, 256), center=True):
 
     return cropped
 
-def transform_coord_system_mpl(offset,size=(256,256)):
-    i,j = offset
-    transform = lambda x,y: tuple(transform_coord_system((-y,x),size=size))
 
-    out = transform(i,j)
-    
+def transform_coord_system_mpl(offset, size=(256, 256)):
+    i, j = offset
+    transform = lambda x, y: tuple(transform_coord_system((-y, x), size=size))
+
+    out = transform(i, j)
+
     return out
+
 
 def transform_coord_system(offset, size=(256, 256), origin="center"):
     """
@@ -1377,11 +1380,11 @@ def transform_coord_system(offset, size=(256, 256), origin="center"):
     query_y = og[0] + offset[1]
     query_x = og[1] + offset[0]
 
-    check_nans = np.array([query_x==query_x, query_y==query_y])
+    check_nans = np.array([query_x == query_x, query_y == query_y])
 
     if not check_nans.any():
         return np.nan
-    else: 
+    else:
         return np.array([int(query_y), int(query_x)])
 
 
@@ -1409,17 +1412,18 @@ def euclidean_distance(coord1, coord2):
     """
     return math.sqrt((coord2[0] - coord1[0]) ** 2 + (coord2[1] - coord1[1]) ** 2)
 
-def get_polar_coord(coord,origin=[0,0]):
-    x,y = coord
-    r = euclidean_distance(coord,origin)
-    theta = np.arctan2(y,x)
 
-    return r,theta
-    
+def get_polar_coord(coord, origin=[0, 0]):
+    x, y = coord
+    r = euclidean_distance(coord, origin)
+    theta = np.arctan2(y, x)
+
+    return r, theta
+
 
 @slicer
-#put a maximum distance (size of large image)
-def is_centered_xy(coord, origin=[0, 0], thresh=25, d=0) -> int: 
+# put a maximum distance (size of large image)
+def is_centered_xy(coord, origin=[0, 0], thresh=25, d=0) -> int:
     """
     Determines whether a coordinate is in the center of an image.
     """
@@ -1460,47 +1464,50 @@ def calculate_percent_change(x_series, y_series, c=1):
     return out
 
 
-def _bin(im,binsize=(16,16)):
+def _bin(im, binsize=(16, 16)):
     """
-    A function that downsamples segmentation maps by outputting the most common element 
+    A function that downsamples segmentation maps by outputting the most common element
     for a sliding window with size binsize
 
-    Parameters: 
+    Parameters:
     ------------
-    im : array 
-        A Ny x Nx array 
+    im : array
+        A Ny x Nx array
 
     binsize : tup of int (by,bx)
         The size of the sliding window used
 
-    Returns: 
+    Returns:
     ------------
     new_im : array of size (Ny/by) x (Nx/bx)
     """
-    #original dimensions of array
-    by,bx = binsize
-    Ny,Nx = im.shape
-    #new shape
-    ny,nx = Ny//by, Nx//bx
-    r_im = im.reshape(ny,by,nx,bx)
-    
-    new_im = np.zeros(shape=(ny,nx))
-    
+    # original dimensions of array
+    by, bx = binsize
+    Ny, Nx = im.shape
+    # new shape
+    ny, nx = Ny // by, Nx // bx
+    r_im = im.reshape(ny, by, nx, bx)
+
+    new_im = np.zeros(shape=(ny, nx))
+
     most_common = lambda arr: (Counter(np.ravel(arr)).most_common())[0][0]
-    
+
     for i in range(ny):
         for j in range(nx):
-            new_im[i,j] = most_common(r_im[i,:,j,:])
-    
+            new_im[i, j] = most_common(r_im[i, :, j, :])
+
     return new_im
+
 
 def clean_df(df):
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna()
     return df
 
-def divide_2f(x,y):
-    return np.round(x/y,2)
+
+def divide_2f(x, y):
+    return np.round(x / y, 2)
+
 
 def pearson_r(x, y, invalid_value=np.nan):
     # Check if the input vectors have the same length
@@ -1528,37 +1535,40 @@ def nan_softmax(x):
     Computes the softmax function (see scipy.special.softmax)
     Works with a vector that includes np.nan values
     """
-    not_nan = (x==x)
-    x_nn = x[not_nan] #x not nan
-    x_n = x[~not_nan] #x nan
-    #if all values are nan, max weight is assigned to the first element
-    if len(x_nn)==0: 
+    not_nan = x == x
+    x_nn = x[not_nan]  # x not nan
+    x_n = x[~not_nan]  # x nan
+    # if all values are nan, max weight is assigned to the first element
+    if len(x_nn) == 0:
         x_n[0] = 1
         z = np.array([])
-    #else calculate the softmax for non-nan values
+    # else calculate the softmax for non-nan values
     else:
         z = spec.softmax(x_nn)
-    #concatenate the softmax values with the nan values
-    out = np.concatenate([z,x_n],axis=0)
+    # concatenate the softmax values with the nan values
+    out = np.concatenate([z, x_n], axis=0)
 
     assert x.shape == out.shape
 
     return out
 
-def _get_surround_coordinates(center=[0,0],r=25,spokes=16):
-    surround = np.asarray([
-        (r*np.sin(np.linspace(0,2*np.pi,spokes))).astype(int),
-        (r*np.cos(np.linspace(0,2*np.pi,spokes))).astype(int)  
-    ]).T
-    
+
+def _get_surround_coordinates(center=[0, 0], r=25, spokes=16):
+    surround = np.asarray(
+        [
+            (r * np.sin(np.linspace(0, 2 * np.pi, spokes))).astype(int),
+            (r * np.cos(np.linspace(0, 2 * np.pi, spokes))).astype(int),
+        ]
+    ).T
+
     coords = [
-        np.asarray([[center[0]+row[0],center[1]+row[1]] for row in surround])
+        np.asarray([[center[0] + row[0], center[1] + row[1]] for row in surround])
     ]
-    
+
     return coords
 
-def mean_match(data1, data2, nboot, nbin):
 
+def mean_match(data1, data2, nboot, nbin):
 
     new_edges = np.linspace(
         np.amin(np.array([data1, data2])),
@@ -1584,18 +1594,14 @@ def mean_match(data1, data2, nboot, nbin):
                 idx1_samples = np.ones((nboot, 1)) * bin_idx_data_1
             else:
                 idx1_samples = np.random.choice(
-                    bin_idx_data_1,
-                    size=(nboot,num_samples),
-                    replace=True
+                    bin_idx_data_1, size=(nboot, num_samples), replace=True
                 )
 
             if len(bin_idx_data_2) == 1:
                 idx2_samples = np.ones((nboot, 1)) * bin_idx_data_2
             else:
                 idx2_samples = np.random.choice(
-                    bin_idx_data_2,
-                    size=(nboot,num_samples),
-                    replace=True
+                    bin_idx_data_2, size=(nboot, num_samples), replace=True
                 )
 
             samples_data1.append(idx1_samples)
@@ -1612,30 +1618,44 @@ def mean_match(data1, data2, nboot, nbin):
 
     return d
 
-def df_regress(reg,df,X_labels=None,y_labels=None,index_tag=None) -> pd.DataFrame:
+
+def df_regress(
+    reg,
+    df,
+    X_labels=None,
+    y_labels=None,
+    index_tag=None,
+    cv_params={"cv": False, "k": 10},
+) -> pd.DataFrame:
     """
     Computes a linear regression given DataFrame labels, and returns a DataFrame
     """
     if type(X_labels) is str:
         X_labels = [X_labels]
 
-    y = df.loc[:,y_labels].values
+    y = df.loc[:, y_labels].values
 
-    if y.ndim < 2: 
-        y = y[...,np.newaxis]
-    
-    X = df.loc[:,X_labels].values
+    if y.ndim < 2:
+        y = y[..., np.newaxis]
 
-    if X.ndim < 2: 
-        X = X[...,np.newaxis]
+    X = df.loc[:, X_labels].values
 
-    res = reg.fit(X,y)
-    score = reg.score(X,y)
+    if X.ndim < 2:
+        X = X[..., np.newaxis]
+
+    res = reg.fit(X, y)
+    score = reg.score(X, y)
+
+    if cv_params["cv"]:
+        from sklearn.model_selection import cross_val_score
+        score = cross_val_score(reg,X,y,cv=cv_params["k"])
 
     d = {
         "index": index_tag,
-        "coefs":[res.coef_.squeeze()],
-        "r2 | {}".format(y_labels) : [score]
+        "coefs": [res.coef_.squeeze()],
+        "intercept": [res.intercept_.squeeze()],
+        "r2 | {}".format(y_labels): [score],
+        "p_{}".format(y_labels): [f_regression(X, y)[1]],
     }
 
     return pd.DataFrame.from_dict(d)
