@@ -34,7 +34,7 @@ class SegmentationMap:
     k : list of ints
         number of segments across users
     users_d : dict
-        key is n_components k and values are which users labeled for k components 
+        key is n_components k and values are which users labeled for k components
     model_components : list of ints
         initialized as same as k but eventually reflects the number of components in the segmentation model
     seg_maps : dict
@@ -71,7 +71,7 @@ class SegmentationMap:
         """
         self.gs_im = None
         if mode == "BSD":
-            assert (type(_in) == str or type(_in) == np.str_)
+            assert type(_in) == str or type(_in) == np.str_
             self.iid = _in  # image id in BSDS500
             try:
                 self.iid_idx = import_utils.IIDS.index(self.iid)
@@ -97,19 +97,19 @@ class SegmentationMap:
                     )
                     flag = "val"
                     self.im = import_utils.import_jpg(self.jpg_path)
-            
-            if flag=="train":
+
+            if flag == "train":
                 self.seg_path = os.path.abspath(
                     os.path.join(import_utils.SEG_PATH_TRAIN, self.iid + ".mat")
-                    )
-            elif flag=="test":
+                )
+            elif flag == "test":
                 self.seg_path = os.path.abspath(
                     os.path.join(import_utils.SEG_PATH_TEST, self.iid + ".mat")
-                    )
-            elif flag=="val":
+                )
+            elif flag == "val":
                 self.seg_path = os.path.abspath(
                     os.path.join(import_utils.SEG_PATH_VAL, self.iid + ".mat")
-                    )
+                )
 
             self.gts = import_utils.load_bsd_mat(self.seg_path)
             self.model_res = {}
@@ -174,7 +174,7 @@ class SegmentationMap:
 
         return a + b
 
-    def make_grayscale(self,im):
+    def make_grayscale(self, im):
         out = tb.rgb2gray(im)
         out = import_utils.norm_im(out)
         self.gs_im = out
@@ -188,11 +188,11 @@ class SegmentationMap:
         max_components=10,
         layer_start=0,
         layer_stop=16,
-        layer_step=4,
+        layer_step=1,
         binning=False,
         use_crop=False,
         use_grayscale=False,
-        keep=False
+        keep=False,
     ):
         """
         Runs perceptual segmentation model on self.im
@@ -210,11 +210,11 @@ class SegmentationMap:
             Maximum allowed number of components
         layer_start, layer_stop, layer_step : int
             layers will be assigned to the self.seg_maps variable according to indexes: [layer_start, layer_stop, layer_step]
-        binning : bool 
+        binning : bool
             Determines whether output segmentation maps at shallow layers are artificially downsampled (binned)
-        use_crop : bool 
+        use_crop : bool
             Determines whether to run the segmentation on the cropped image or the uncropped image
-        use_grayscale : Determines whether to run the segmentation on a grayscale image or the original image 
+        use_grayscale : Determines whether to run the segmentation on a grayscale image or the original image
 
         Raises:
         ------
@@ -236,46 +236,67 @@ class SegmentationMap:
 
         if use_crop:
             if not self.cropped:
-                raise("Use crop method before calling with use_crop=True")
-            else: 
+                raise ("Use crop method before calling with use_crop=True")
+            else:
                 model_im = self.c_im
         else:
             model_im = self.im
-        
+
         if use_grayscale:
             model_im = self.make_grayscale(model_im)
             model_im = import_utils.norm_im(model_im)
 
+        n_layers = layer_stop
+
         if keep:
             if "a" in model:
                 self.model_res["a"] = seg._fit_model(
-                    model_im, model_type="a", n_components=n_components
+                    model_im,
+                    model_type="a",
+                    n_components=n_components,
+                    layer=layer_stop,
                 )
             # run model 'b'
             if "b" in model:
                 self.model_res["b"] = seg._fit_model(
-                    model_im, model_type="b", n_components=n_components
+                    model_im,
+                    model_type="b",
+                    n_components=n_components,
+                    layer=layer_stop,
                 )
             # run model 'c'
             if "c" in model:
                 self.model_res["c"], self.proba_maps = seg._fit_model(
-                    model_im, model_type="c", n_components=n_components,keep=keep
+                    model_im,
+                    model_type="c",
+                    n_components=n_components,
+                    layer=layer_stop,
+                    keep=keep,
                 )
         else:
-        # run model 'a'
+            # run model 'a'
             if "a" in model:
                 self.model_res["a"] = seg._fit_model(
-                    model_im, model_type="a", n_components=n_components
+                    model_im,
+                    model_type="a",
+                    n_components=n_components,
+                    layer=layer_stop,
                 )
             # run model 'b'
             if "b" in model:
                 self.model_res["b"] = seg._fit_model(
-                    model_im, model_type="b", n_components=n_components
+                    model_im,
+                    model_type="b",
+                    n_components=n_components,
+                    layer=layer_stop,
                 )
             # run model 'c'
             if "c" in model:
                 self.model_res["c"] = seg._fit_model(
-                    model_im, model_type="c", n_components=n_components
+                    model_im,
+                    model_type="c",
+                    n_components=n_components,
+                    layer=layer_stop,
                 )
         d = self.model_res
 
@@ -318,11 +339,17 @@ class SegmentationMap:
                     self.seg_maps[key][smm.n_components].append(smap)
 
             if use_crop:
-                self.c_seg_maps=self.seg_maps
+                self.c_seg_maps = self.seg_maps
 
         return None
 
-    def crop(self, spec={"y": (23, 278), "x": (23, 278)}, size=(256, 256), center=True,RGB=True):
+    def crop(
+        self,
+        spec={"y": (23, 278), "x": (23, 278)},
+        size=(256, 256),
+        center=True,
+        RGB=True,
+    ):
         """
         Crops an image, parameters specify different methods of cropping, based on toolbox.py -> crop
 
@@ -383,9 +410,9 @@ class SegmentationMap:
                 maps = self.c_gts
             else:
                 maps = self.gts
-            if type(gt)==int:
-                self.primary_seg_map=maps[gt]
-            elif type(gt)==bool:
+            if type(gt) == int:
+                self.primary_seg_map = maps[gt]
+            elif type(gt) == bool:
                 if n_components is not None:
                     idx = self.users_d[n_components][0]
                     self.primary_seg_map = maps[idx]
