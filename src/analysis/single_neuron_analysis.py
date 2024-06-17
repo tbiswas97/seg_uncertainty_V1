@@ -5,6 +5,7 @@ import numpy as np
 
 def _get_pmap_infolist(coord, pmap, labels, spatial_average=(20, 20)) -> dict:
     if spatial_average is not None:
+        #TODO: spatial average over a circular area (rather than rectuangular)
         dy, dx = spatial_average
         p = pmap[:, coord[0] - dy : coord[0] + dy, coord[1] - dx : coord[1] + dx]
         p = np.mean(p, axis=(1, 2))
