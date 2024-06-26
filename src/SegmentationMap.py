@@ -193,6 +193,7 @@ class SegmentationMap:
         use_crop=False,
         use_grayscale=False,
         keep=False,
+        init=None
     ):
         """
         Runs perceptual segmentation model on self.im
@@ -222,6 +223,13 @@ class SegmentationMap:
             Model object defined in models_deep_seg.py
         self.seg_maps : dict
         """
+        if keep:
+            assert model=="c", "Must use model \"c\" if keep is True"
+
+        if init is not None: 
+            assert type(init)==np.ndarray
+            assert model=="c", "Must use model \"c\" if init is not None"
+
         if n_components is not None:
             pass
         else:
@@ -246,32 +254,16 @@ class SegmentationMap:
             model_im = self.make_grayscale(model_im)
             model_im = import_utils.norm_im(model_im)
 
-        n_layers = layer_stop
-
         if keep:
-            if "a" in model:
-                self.model_res["a"] = seg._fit_model(
-                    model_im,
-                    model_type="a",
-                    n_components=n_components,
-                    layer=layer_stop,
-                )
-            # run model 'b'
-            if "b" in model:
-                self.model_res["b"] = seg._fit_model(
-                    model_im,
-                    model_type="b",
-                    n_components=n_components,
-                    layer=layer_stop,
-                )
             # run model 'c'
             if "c" in model:
-                self.model_res["c"], self.proba_maps = seg._fit_model(
+                self.model_res["c"], self._res_iter = seg._fit_model(
                     model_im,
                     model_type="c",
                     n_components=n_components,
                     layer=layer_stop,
                     keep=keep,
+                    init=init
                 )
         else:
             # run model 'a'
@@ -280,7 +272,7 @@ class SegmentationMap:
                     model_im,
                     model_type="a",
                     n_components=n_components,
-                    layer=layer_stop,
+                    layer=layer_stop
                 )
             # run model 'b'
             if "b" in model:
@@ -288,7 +280,7 @@ class SegmentationMap:
                     model_im,
                     model_type="b",
                     n_components=n_components,
-                    layer=layer_stop,
+                    layer=layer_stop
                 )
             # run model 'c'
             if "c" in model:
@@ -296,50 +288,50 @@ class SegmentationMap:
                     model_im,
                     model_type="c",
                     n_components=n_components,
-                    layer=layer_stop,
+                    layer=layer_stop
                 )
         d = self.model_res
 
         # gen nested dictionary for seg maps
-        for key in d.keys():
-            self.seg_maps[key] = {}
-            n = d[key].shape[1]
+        #for key in d.keys():
+            #self.seg_maps[key] = {}
+            #n = d[key].shape[1]
 
-            # different values of i will have different n_components
-            for i in range(n):
-                # index 2 below is the index for the smm object
-                smm = d[key][0, i, 2, 0]
-                smm_last = d[key][-1, i, 2, 0]
-                Ny, Nx = smm.im_shape
-                _Ny, _Nx = smm_last.im_shape
-                self.seg_maps[key][smm.n_components] = []
-                layers = d[key][
-                    layer_start:layer_stop:layer_step, i, 2, 0
-                ]  # generates seg map from every 4th layer
+            ## different values of i will have different n_components
+            #for i in range(n):
+                ## index 2 below is the index for the smm object
+                #smm = d[key][0, i, 2, 0]
+                #smm_last = d[key][-1, i, 2, 0]
+                #Ny, Nx = smm.im_shape
+                #_Ny, _Nx = smm_last.im_shape
+                #self.seg_maps[key][smm.n_components] = []
+                #layers = d[key][
+                    #layer_start:layer_stop:layer_step, i, 2, 0
+                #]  # generates seg map from every 4th layer
 
-                for layer in layers:
-                    ny, nx = layer.im_shape
-                    smap = layer.weights_.argmax(1).reshape((ny, nx))
+                #for layer in layers:
+                    #ny, nx = layer.im_shape
+                    #smap = layer.weights_.argmax(1).reshape((ny, nx))
 
-                    if binning == True:
-                        smap = tb._bin(smap, binsize=(ny // _Ny, nx // _Nx))
+                    #if binning == True:
+                        #smap = tb._bin(smap, binsize=(ny // _Ny, nx // _Nx))
 
-                        assert Ny // ny == Nx // nx
+                        #assert Ny // ny == Nx // nx
 
-                        m = Ny // ny
-                        smap = smap.repeat(m, 0).repeat(m, 1)
+                        #m = Ny // ny
+                        #smap = smap.repeat(m, 0).repeat(m, 1)
 
-                    else:
-                        if ny != Ny:
-                            assert Ny // ny == Nx // nx
-                            multiplier = Ny // ny
-                            m = multiplier
-                            smap = smap.repeat(m, 0).repeat(m, 1)
+                    #else:
+                        #if ny != Ny:
+                            #assert Ny // ny == Nx // nx
+                            #multiplier = Ny // ny
+                            #m = multiplier
+                            #smap = smap.repeat(m, 0).repeat(m, 1)
 
-                    self.seg_maps[key][smm.n_components].append(smap)
+                    #self.seg_maps[key][smm.n_components].append(smap)
 
-            if use_crop:
-                self.c_seg_maps = self.seg_maps
+            #if use_crop:
+                #self.c_seg_maps = self.seg_maps
 
         return None
 
