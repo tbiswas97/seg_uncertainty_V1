@@ -610,6 +610,8 @@ def model_c(
     verbose=True,
     keep=False,
 ):
+    if gt is not None: 
+        kmeans = False
     model = copy.deepcopy(model)
     ny, nx = im.shape[:2]
     K = K_list.shape[0]

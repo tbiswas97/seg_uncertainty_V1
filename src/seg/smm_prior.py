@@ -408,6 +408,7 @@ class SMM(sklearn.base.BaseEstimator):
             elif gt is not None:
                 cluster_centers, _ = tb.gt_pca_cluster_centers(X,gt)
                 self.means_ = cluster_centers
+                assert self.means_.shape[0] == self.n_components
             else:
                 self.means_ = np.zeros((self.n_components, X.shape[1]))
             
@@ -423,8 +424,8 @@ class SMM(sklearn.base.BaseEstimator):
                     nx = gt.shape[1]
                     vec = np.reshape(gt,ny*nx)
                     vals, counts = np.asarray(np.unique(vec,return_counts=True))
-                    vals[counts<tb.THRESHOLD] = 0 
-                    adj_vals = vals[np.nonzero(vals)]
+                    #vals[counts<tb.THRESHOLD] = 0 
+                    adj_vals = vals[vals==vals]
                     indicators = []
                     for val in adj_vals:
                         indicator = np.zeros(vec.shape)
@@ -433,6 +434,7 @@ class SMM(sklearn.base.BaseEstimator):
                         indicators.append(indicator)
                     indicators = np.asarray(indicators)
                     self.weights_ = indicators.T
+                    assert self.weights_.shape[1]==self.n_components
                     self.weights_ /= self.weights_.sum(axis=1, keepdims=True)
                     print(self.weights_.shape)
                     #print(self.prior_means/self.prior_means.sum(axis=1, keepdims=True).shape)

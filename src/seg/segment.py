@@ -1,6 +1,9 @@
 from seg.models_deep_seg import *
 from seg.pyramid import *
 
+from scipy.stats import entropy
+import pandas as pd
+
 import datetime
 import os
 import pickle
@@ -76,18 +79,25 @@ def _fit_model(
         dat,
         model_type="ref",
         n_components=np.array([3]),
-        keep=False
+        layer=None,
+        keep=False,
+        init=None
     ):
     """
     Use to fit segmentation map to input image
     Parameters:
-        dat: ND array of n_im,height,weight,channels
-        model types:
+    ------------
+        dat: np.ndarray
+            ND array of n_im,height,weight,channels
+        model_type: str
             'ref': indeprendent layers / no smoothing
             'a': independent layers
             'b': single prior probability map
             'c': smoothed prior probability maps
-        n_components: number of components for segmentation map (each image will have the same number) as array
+        n_components: np.array
+            number of components for segmentation map (each image will have the same number) as array
+        layer : int 
+            number of layers of VGG neural network to extract features from 
 
     Output:
         array of n_im model results (singleton if n_im=1)
@@ -132,6 +142,7 @@ def _fit_model(
 
     # models are defined in models_deep_seg.py
     # FIXME: ref model output is not the correct size?
+    # FIXME: add init option to model a 
     if model_type == "ref":
         _fit = lambda x: model_ref(
             deepnet,
@@ -153,7 +164,7 @@ def _fit_model(
             x,
             K_list=K_list,
             neigh_size_list=neigh_size_list,
-            L=16,
+            L=layer,
             d_list=d_list,
             N_list=N_list,
             n_iter=25,
@@ -170,7 +181,7 @@ def _fit_model(
             x,
             K_list=K_list,
             neigh_size_list=neigh_size_list,
-            L=16,
+            L=layer,
             d_list=d_list,
             N_list=N_list,
             n_iter=25,
@@ -185,11 +196,12 @@ def _fit_model(
         _fit = lambda x: model_c(
             deepnet,
             x,
+            gt=init,
             K_list=K_list,
-            neigh_size_list=neigh_size_list,
-            L=16,
-            d_list=d_list,
-            N_list=N_list,
+            neigh_size_list=neigh_size_list[:layer],
+            L=layer,
+            d_list=d_list[:layer],
+            N_list=N_list[:layer],
             n_iter=25,
             params="",
             ppca=ppca,
@@ -255,8 +267,9 @@ def _gen_seg_map(res, N_list, standard_size=True):
 
 def _reshape_model_weights(SM,layers_of_interest=None):
     d = SM.model_res
-    SM.model = d.keys()[0]
-    SM.n_components = d[SM.model].keys()[0]
+    SM.layers_of_interest = layers_of_interest
+    SM.model = list(SM.seg_maps.keys())[0]
+    SM.n_components = list(SM.seg_maps[SM.model].keys())[0]
     SM.pmaps = {}
     for key in d.keys():
         #self.seg_maps[key] = {}
@@ -297,6 +310,44 @@ def _reshape_model_weights(SM,layers_of_interest=None):
                 SM.pmaps[key][smm.n_components].append(pmap)
 
     return None
+
+def __get_global_entropy_at_layer(SM,layer,bounding_box=(256,256)):
+    if hasattr(SM, 'pmaps'):
+        pass
+    else:
+        _reshape_model_weights(SM)
+
+    assert layer in SM.layers_of_interest
+
+    layer_idx = SM.layers_of_interest.index(layer)
+
+    pmap = SM.pmaps[SM.model][SM.n_components][layer_idx]
+    pmap_resize = np.asarray(tb.crop(pmap,size=bounding_box))
+    entropies = np.nansum(entropy(pmap_resize))
+
+    return entropies
+
+
+def _get_global_entropy(SM,bounding_box=(256,256)):
+    if hasattr(SM, 'pmaps'):
+        pass
+    else:
+        _reshape_model_weights(SM)
+    
+    pmaps  = [pmap for pmap in SM.pmaps[SM.model][SM.n_components]]
+
+    pmaps_resize = [np.asarray(tb.crop(pmap,size=bounding_box)) for pmap in pmaps]
+
+    entropies = [np.sum(entropy(pmap)) for pmap in pmaps_resize]
+
+    d = {"global_entropy":entropies}
+
+    df = pd.DataFrame.from_dict(d)
+
+    df.insert(0,"layer",SM.layers_of_interest)
+    df.insert(0,"img_idx",[SM.iid_idx]*len(SM.layers_of_interest))
+
+    return df
 
 def main(model_type="a"):
     """
