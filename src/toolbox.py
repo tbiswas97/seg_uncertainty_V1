@@ -1180,14 +1180,15 @@ def gt_pca_cluster_centers(Xpca, gt):
     f = Xpca.shape[1]
     gt = np.reshape(gt, p)
     vals, counts = np.asarray(np.unique(gt, return_counts=True))
-    vals[counts < THRESHOLD] = 0
-    adj_vals = vals[np.nonzero(vals)]
+    #vals[counts < THRESHOLD] = -1
+    adj_vals = vals[vals==vals]
     indicators = []
     for val in adj_vals:
         indicator = np.zeros(gt.shape)
         indicator[gt == val] = 1
         indicators.append(indicator)
     labeled_arrs = []
+    assert(len(indicators)==len(np.unique(gt)))
     for indicator in indicators:
         labeled_arrs.append(
             np.multiply(Xpca, np.repeat(indicator[:, np.newaxis], f, axis=1))
