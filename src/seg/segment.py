@@ -81,7 +81,8 @@ def _fit_model(
         n_components=np.array([3]),
         layer=None,
         keep=False,
-        init=None
+        init=None,
+        init_eps=None
     ):
     """
     Use to fit segmentation map to input image
@@ -98,6 +99,12 @@ def _fit_model(
             number of components for segmentation map (each image will have the same number) as array
         layer : int 
             number of layers of VGG neural network to extract features from 
+        keep : bool
+            Set to True to keep the segmentation maps from every iteration of the EM algorithm
+        init : np.array 
+            Array of shape(image height, image width), this is the initial guess during segmentation fitting 
+        init_eps: float
+            This is the amount of uncertainty injected with the initial guess, if None 0.0001 is used as default 
 
     Output:
         array of n_im model results (singleton if n_im=1)
@@ -197,6 +204,7 @@ def _fit_model(
             deepnet,
             x,
             gt=init,
+            gt_eps=init_eps,
             K_list=K_list,
             neigh_size_list=neigh_size_list[:layer],
             L=layer,

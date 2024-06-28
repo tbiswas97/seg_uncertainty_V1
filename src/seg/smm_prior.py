@@ -383,7 +383,7 @@ class SMM(sklearn.base.BaseEstimator):
                     pass
 
                 
-    def _initialization_step(self, X, gt=None, n_components_best=None, use_kmeans=False):
+    def _initialization_step(self, X, gt=None, gt_eps=None, n_components_best=None, use_kmeans=False):
         """ Performs the initialization step of the EM algorithm.
  
         This method initializes the means, class-related weights, 
@@ -420,6 +420,8 @@ class SMM(sklearn.base.BaseEstimator):
             elif self.prior_weights in {'ext','ext2','ext3'}:
                 if gt is not None: 
                     epsilon = 0.0001
+                    if gt_eps is not None:
+                        epsilon = gt_eps
                     ny = gt.shape[0]
                     nx = gt.shape[1]
                     vec = np.reshape(gt,ny*nx)

@@ -594,6 +594,7 @@ def model_c(
     model,
     im,
     gt=None,
+    gt_eps=None,
     n_components_best=None,
     kmeans=True,
     K_list=np.array([3, 4, 5]),
@@ -626,6 +627,7 @@ def model_c(
 
     deep_features = get_conv2d_features(model, im_torch)
 
+    #Initializes the FlexMM object for each layer and each number of components
     for l in range(L):
         if N_list[l][0] != ny and l > 0:
             Xpca0 = pooling(Xpca0.reshape((ny, nx, Xpca0.shape[-1])), (2, 2)).reshape(
@@ -705,6 +707,7 @@ def model_c(
                 res[l, k, 2, 0]._initialization_step(
                     Xpca[l],
                     gt=gt,
+                    gt_eps=gt_eps,
                     n_components_best=n_components_best,
                     use_kmeans=kmeans,
                 )
