@@ -5,7 +5,13 @@ from natsort import natsorted as ns
 from analysis import single_neuron_analysis as sna
 
 
-def get_info_at_layer(df, SM, layer_idx=0, image_idx=0, im_shape=(256, 256)):
+def get_info_at_layer(
+        df,
+        SM,
+        layer_idx=0, 
+        image_idx=0, 
+        im_shape=(256, 256)
+    ):
     model = SM.model
     n_components = SM.n_components
 
@@ -41,34 +47,29 @@ def get_info_at_layer(df, SM, layer_idx=0, image_idx=0, im_shape=(256, 256)):
 
     coords = coords.applymap(str_to_int)
 
-    neuron1_df = sna.get_pmap_infolist(coords.iloc[:,0],pmap,labels[:len(labels)//2])
+    neuron1_df = sna.get_pmap_infolist(
+        coords.iloc[:, 0], pmap, labels[: len(labels) // 2]
+    )
 
-    neuron2_df = sna.get_pmap_infolist(coords.iloc[:,1],pmap,labels[len(labels)//2:len(labels)])
+    neuron2_df = sna.get_pmap_infolist(
+        coords.iloc[:, 1], pmap, labels[len(labels) // 2 : len(labels)]
+    )
 
-    out = pd.concat([neuron1_df,neuron2_df],axis=1,ignore_index=True)
+    out = pd.concat([neuron1_df, neuron2_df], axis=1, ignore_index=True)
     out["layer"] = layer_idx
 
-    to_join = df.loc[df.img_idx==SM.iid_idx].reset_index(drop=True)
+    to_join = df.loc[df.img_idx == SM.iid_idx].reset_index(drop=True)
     names = list(to_join.columns) + list(out.columns)
 
-    joined = pd.concat(
-        [to_join,out],
-        axis=1,
-        ignore_index=True
-    ).rename(
-        {
-            k:v for k,v in zip(range(len(names)),names)
-        }, axis=1
+    joined = pd.concat([to_join, out], axis=1, ignore_index=True).rename(
+        {k: v for k, v in zip(range(len(names)), names)}, axis=1
     )
 
     return joined
 
+
 def get_info_at_im(
-    df,
-    SM,
-    layers_of_interest,
-    im_shape=(256, 256),
-    spatial_average=(20, 20)
+    df, SM, layers_of_interest, im_shape=(256, 256), spatial_average=(20, 20)
 ):
 
     info_all_layers = pd.concat(
@@ -90,11 +91,7 @@ def get_info_at_im(
 
 
 def get_info(
-    df,
-    SMs,
-    layers_of_interest,
-    im_shape=(256, 256),
-    spatial_average=(20, 20)
+    df, SMs, layers_of_interest, im_shape=(256, 256), spatial_average=(20, 20)
 ):
     all_ims = pd.concat(
         [
@@ -119,17 +116,12 @@ def stitch_info(
     SMs,
     layers_of_interest,
     im_shape=(256, 256),
-    bounding_box = 180,
-    spatial_average=(20, 20)
+    bounding_box=180,
+    spatial_average=(20, 20),
 ):
 
     df = df.loc[
-        np.asarray(
-            [
-                (df.neuron_r[i] < bounding_box)
-                for i in df.neuron_np_coord.index
-            ]
-        )
+        np.asarray([(df.neuron_r[i] < bounding_box) for i in df.neuron_np_coord.index])
     ]
 
     info = get_info(
