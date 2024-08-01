@@ -193,7 +193,8 @@ class SegmentationMap:
         use_crop=False,
         use_grayscale=False,
         keep=False,
-        init=None
+        init=None,
+        init_eps=None
     ):
         """
         Runs perceptual segmentation model on self.im
@@ -215,7 +216,15 @@ class SegmentationMap:
             Determines whether output segmentation maps at shallow layers are artificially downsampled (binned)
         use_crop : bool
             Determines whether to run the segmentation on the cropped image or the uncropped image
-        use_grayscale : Determines whether to run the segmentation on a grayscale image or the original image
+        use_grayscale : bool
+            Determines whether to run the segmentation on a grayscale image or the original image
+        keep : bool
+            Set to True to keep the segmentation maps from every iteration of the EM algorithm
+        init : np.array 
+            Array of shape(image height, image width), this is the initial guess during segmentation fitting 
+        init_eps: float
+            This is the amount of uncertainty injected with the initial guess, if None 0.0001 is used as default 
+
 
         Raises:
         ------
@@ -226,9 +235,6 @@ class SegmentationMap:
         if keep:
             assert model=="c", "Must use model \"c\" if keep is True"
 
-        if init is not None: 
-            assert type(init)==np.ndarray
-            assert model=="c", "Must use model \"c\" if init is not None"
 
         if n_components is not None:
             pass
@@ -241,6 +247,13 @@ class SegmentationMap:
         n_components = n_components[n_components < max_components]
 
         self.model_components = n_components
+
+        if init is not None: 
+            assert type(init)==np.ndarray
+            assert model=="c", "Must use model \"c\" if init is not None"
+            if init_eps is not None: 
+                k = self.model_components[-1]
+                assert init_eps < (1/2)*(1/(k-1)), "Initialization epsilon value is too high for ground truth"
 
         if use_crop:
             if not self.cropped:
@@ -263,7 +276,8 @@ class SegmentationMap:
                     n_components=n_components,
                     layer=layer_stop,
                     keep=keep,
-                    init=init
+                    init=init,
+                    init_eps=init_eps
                 )
         else:
             # run model 'a'
