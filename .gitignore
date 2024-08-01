@@ -19,7 +19,7 @@ src/vseg
 src/__*
 *.html
 *.gif
-src/run*_*.py
+src/run*.py
 __pycache__/*
 */__pycache__/*
 *.pyc
