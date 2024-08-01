@@ -107,6 +107,7 @@ class Analysis:
                 im_shape=self.Session.im_size,
                 bounding_box=bounding_box,
                 spatial_average=spatial_average,
+                calculate_global_entropy=calculate_entropy
             )
 
             if calculate_entropy:
