@@ -1,6 +1,7 @@
 import toolbox as tb
 import pandas as pd
 import numpy as np
+from scipy.stats import entropy
 
 
 def _get_pmap_infolist(coord, pmap, labels, spatial_average=(20, 20)) -> dict:
@@ -34,7 +35,8 @@ def get_info_at_layer(
     SM,
     layer_idx=0,
     im_shape=(256, 256),
-    spatial_average=(20, 20)
+    spatial_average=(20, 20),
+    calculate_global_entropy=True
 ):
     """
     Extracts uncertinaty information and segment assignment for a given coordinate
@@ -61,10 +63,16 @@ def get_info_at_layer(
 
     segment_labels.append("neuron_segment_argmax")
 
+    
     coords = df.loc[df.img_idx == SM.iid_idx, df_labels].reset_index(drop=True)
 
     out = get_pmap_infolist(coords, pmap, segment_labels, spatial_average)
     out["layer"] = layer_idx
+
+    if calculate_global_entropy:
+        ge = np.sum(entropy(pmap,axis=0))
+    
+    out["global_entropy"] = ge
 
     to_join = df.loc[df.img_idx == SM.iid_idx].reset_index(drop=True)
 
@@ -88,7 +96,8 @@ def get_info_at_im(
     SM,
     layers_of_interest,
     im_shape=(256, 256),
-    spatial_average=(20, 20)
+    spatial_average=(20, 20),
+    calculate_global_entropy=True
 ):
 
     info_all_layers = pd.concat(
@@ -99,6 +108,7 @@ def get_info_at_im(
                 layer_idx=k,
                 im_shape=im_shape,
                 spatial_average=spatial_average,
+                calculate_global_entropy=calculate_global_entropy
             )
             for k in range(len(layers_of_interest))
         ],
@@ -114,7 +124,8 @@ def get_info(
     SMs,
     layers_of_interest,
     im_shape=(256, 256),
-    spatial_average=(20, 20)
+    spatial_average=(20, 20),
+    calculate_global_entropy=True
 ):
     all_ims = pd.concat(
         [
@@ -124,6 +135,7 @@ def get_info(
                 layers_of_interest,
                 im_shape=im_shape,
                 spatial_average=spatial_average,
+                calculate_global_entropy=calculate_global_entropy
             )
             for i, SM in enumerate(SMs)
         ],
@@ -140,7 +152,8 @@ def stitch_info(
     layers_of_interest,
     im_shape=(256, 256),
     bounding_box = 180,
-    spatial_average=(20, 20)
+    spatial_average=(20, 20),
+    calculate_global_entropy=True
 ):
     df = df.loc[df.presentation == "large"]
 
@@ -153,12 +166,20 @@ def stitch_info(
         )
     ]
 
+    #use only those images that have not been excluded:
+    SMs_arr = np.asarray(SMs)
+    #included images: 
+    incl = df.img_idx.unique().astype(int)
+    
+    SMs = list(SMs_arr[incl])
+
     info = get_info(
         df,
         SMs,
         layers_of_interest,
         im_shape=im_shape,
         spatial_average=spatial_average,
+        calculate_global_entropy=calculate_global_entropy
     )
 
     return info
