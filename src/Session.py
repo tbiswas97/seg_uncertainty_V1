@@ -774,6 +774,27 @@ class Session:
             :, SMALL_LARGE_IDXS["large"], ...
         ].mean(axis=-1)
 
+    def _get_Session_vars(self):
+        self.MM_small = self.resp_train.sum(axis=-1)[
+            :, SMALL_LARGE_IDXS["small"], ...
+        ].mean(axis=-1)
+
+        self.MM_large = self.resp_train.sum(axis=-1)[
+            :, SMALL_LARGE_IDXS["large"], ...
+        ].mean(axis=-1)
+
+        #TODO: if comparing across sessinos then 
+        self.VV_small = self.resp_train.sum(axis=-1)[
+            :, SMALL_LARGE_IDXS["small"], ...
+        ].std(axis=-1)**2
+
+        self.VV_large = self.resp_train.sum(axis=-1)[
+            :, SMALL_LARGE_IDXS["large"], ...
+        ].std(axis=-1)**2
+
+        self.FF_small = self.VV_small/self.MM_small
+        self.FF_large = self.VV_large/self.MM_large
+
     def _get_neuron_modulation_ratio(self, idx, location):
         if location == "center":
             driving_im = np.argmax(self.mean_frs["center_large"][idx])
