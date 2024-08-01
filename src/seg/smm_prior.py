@@ -438,7 +438,6 @@ class SMM(sklearn.base.BaseEstimator):
                     self.weights_ = indicators.T
                     assert self.weights_.shape[1]==self.n_components
                     self.weights_ /= self.weights_.sum(axis=1, keepdims=True)
-                    print(self.weights_.shape)
                     #print(self.prior_means/self.prior_means.sum(axis=1, keepdims=True).shape)
                 else:
                     self.weights_ = self.prior_means
