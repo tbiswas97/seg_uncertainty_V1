@@ -23,7 +23,6 @@ from matplotlib import image
 from collections import Counter
 import math
 import pandas as pd
-import statsmodels.api as sm
 
 from sklearn.feature_selection import f_regression
 from sklearn import linear_model

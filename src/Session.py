@@ -7,7 +7,6 @@ from itertools import combinations, permutations
 import pandas as pd
 from scipy.spatial import KDTree
 from collections import Counter
-from vseg.src.vseg import SegmentationMap as PseudoSegmentationMap
 from numpy.random import choice as choose
 import torch
 from functools import cache as memoize
