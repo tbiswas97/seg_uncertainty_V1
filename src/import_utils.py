@@ -6,45 +6,6 @@ import glob
 import h5py
 import pickle
 
-# CHANGE EXP NAME HERE
-EXP_NAME = "EXP150_NatImages_NeuroPixels"
-#EXP_NAME = "Sessions_NaturalEnsemble_136"
-
-# iids of images associated with experiment
-if EXP_NAME == "EXP150_NatImages_NeuroPixels":
-    IID_MAT_PATH = os.path.abspath( os.path.join(
-            os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Names.mat"
-        )
-    )
-    SESSION_MAT_PATH = os.path.abspath(
-        os.path.join(
-            os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Sessions.mat"
-        )
-    )
-    temp = np.concatenate(loadmat(IID_MAT_PATH)["IMAGENAME"]).tolist()
-    IIDS = [elem[0] for elem in temp]
-    JPGS = [iid + ".jpg" for iid in IIDS]
-    SEGS = [iid + ".seg" for iid in IIDS]  # BSDS500 uses .mat
-
-    d = {
-        "IID_MAT_PATH": IID_MAT_PATH,
-        "SESSION_MAT_PATH": SESSION_MAT_PATH,
-        "IIDS": IIDS,
-        "JPGS": JPGS,
-        "SEGS": SEGS,
-    }
-
-elif EXP_NAME == "Sessions_NaturalEnsemble_136":
-    SESSION_MAT_PATH = os.path.abspath(
-        os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + ".mat")
-    )
-    SESSION_IMS = os.path.abspath(
-        os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + "_images.pkl")
-    )
-    d = {
-        "SESSION_MAT_PATH": SESSION_MAT_PATH,
-        "SESSION_IMS" : SESSION_IMS
-    }
 
 
 
@@ -111,77 +72,6 @@ def get_exp_info(EXP_NAME,index=None):
     return d
 
 
-# Paths to BSD data
-JPG_PATH_TRAIN = os.path.abspath(
-    os.path.join(
-        os.path.dirname(os.getcwd()),
-        "data",
-        "BSR",
-        "BSDS500",
-        "data",
-        "images",
-        "train",
-    )
-)
-JPG_PATH_TEST = os.path.abspath(
-    os.path.join(
-        os.path.dirname(os.getcwd()),
-        "data",
-        "BSR",
-        "BSDS500",
-        "data",
-        "images",
-        "test",
-    )
-)
-
-JPG_PATH_VAL = os.path.abspath(
-    os.path.join(
-        os.path.dirname(os.getcwd()),
-        "data",
-        "BSR",
-        "BSDS500",
-        "data",
-        "images",
-        "val"
-    )
-)
-
-SEG_PATH_TRAIN = os.path.abspath(
-    os.path.join(
-        os.path.dirname(os.getcwd()),
-        "data",
-        "BSR",
-        "BSDS500",
-        "data",
-        "groundTruth",
-        "train"
-    )
-)
-
-SEG_PATH_TEST = os.path.abspath(
-    os.path.join(
-        os.path.dirname(os.getcwd()),
-        "data",
-        "BSR",
-        "BSDS500",
-        "data",
-        "groundTruth",
-        "test"
-    )
-)
-
-SEG_PATH_VAL = os.path.abspath(
-    os.path.join(
-        os.path.dirname(os.getcwd()),
-        "data",
-        "BSR",
-        "BSDS500",
-        "data",
-        "groundTruth",
-        "val"
-    )
-)
 
 Dataset = h5py._hl.dataset.Dataset
 Group = h5py._hl.group.Group
@@ -336,3 +226,115 @@ def _load(filename):
     """
     with open(filename, "rb") as f:
         return pickle.load(f)
+
+if __name__ == "__main__":
+    # CHANGE EXP NAME HERE
+    EXP_NAME = "EXP150_NatImages_NeuroPixels"
+    #EXP_NAME = "Sessions_NaturalEnsemble_136"
+
+    # iids of images associated with experiment
+    if EXP_NAME == "EXP150_NatImages_NeuroPixels":
+        IID_MAT_PATH = os.path.abspath( os.path.join(
+                os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Names.mat"
+            )
+        )
+        SESSION_MAT_PATH = os.path.abspath(
+            os.path.join(
+                os.path.dirname(os.getcwd()), EXP_NAME, "EXP150_NatImages_Sessions.mat"
+            )
+        )
+        temp = np.concatenate(loadmat(IID_MAT_PATH)["IMAGENAME"]).tolist()
+        IIDS = [elem[0] for elem in temp]
+        JPGS = [iid + ".jpg" for iid in IIDS]
+        SEGS = [iid + ".seg" for iid in IIDS]  # BSDS500 uses .mat
+
+        d = {
+            "IID_MAT_PATH": IID_MAT_PATH,
+            "SESSION_MAT_PATH": SESSION_MAT_PATH,
+            "IIDS": IIDS,
+            "JPGS": JPGS,
+            "SEGS": SEGS,
+        }
+
+    elif EXP_NAME == "Sessions_NaturalEnsemble_136":
+        SESSION_MAT_PATH = os.path.abspath(
+            os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + ".mat")
+        )
+        SESSION_IMS = os.path.abspath(
+            os.path.join(os.path.dirname(os.getcwd()), EXP_NAME, EXP_NAME + "_images.pkl")
+        )
+        d = {
+            "SESSION_MAT_PATH": SESSION_MAT_PATH,
+            "SESSION_IMS" : SESSION_IMS
+        }
+    # Paths to BSD data
+    JPG_PATH_TRAIN = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.getcwd()),
+            "data",
+            "BSR",
+            "BSDS500",
+            "data",
+            "images",
+            "train",
+        )
+    )
+    JPG_PATH_TEST = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.getcwd()),
+            "data",
+            "BSR",
+            "BSDS500",
+            "data",
+            "images",
+            "test",
+        )
+    )
+
+    JPG_PATH_VAL = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.getcwd()),
+            "data",
+            "BSR",
+            "BSDS500",
+            "data",
+            "images",
+            "val"
+        )
+    )
+
+    SEG_PATH_TRAIN = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.getcwd()),
+            "data",
+            "BSR",
+            "BSDS500",
+            "data",
+            "groundTruth",
+            "train"
+        )
+    )
+
+    SEG_PATH_TEST = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.getcwd()),
+            "data",
+            "BSR",
+            "BSDS500",
+            "data",
+            "groundTruth",
+            "test"
+        )
+    )
+
+    SEG_PATH_VAL = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.getcwd()),
+            "data",
+            "BSR",
+            "BSDS500",
+            "data",
+            "groundTruth",
+            "val"
+        )
+    )
