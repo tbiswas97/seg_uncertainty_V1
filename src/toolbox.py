@@ -13,7 +13,6 @@ import numpy.fft as npfft
 import scipy as sp
 import scipy.special as spec
 import scipy.misc as misc
-import imageio as io
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
 from scipy.ndimage import laplace, gaussian_filter, gaussian_laplace
