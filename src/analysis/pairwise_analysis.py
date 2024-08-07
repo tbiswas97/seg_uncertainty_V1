@@ -10,7 +10,8 @@ def get_info_at_layer(
         SM,
         layer_idx=0, 
         image_idx=0, 
-        im_shape=(256, 256)
+        im_shape=(256, 256),
+        spatial_average=(20,20)
     ):
     model = SM.model
     n_components = SM.n_components
@@ -37,25 +38,27 @@ def get_info_at_layer(
 
     coords = df.loc[df.img_idx == SM.iid_idx, df_labels].reset_index(drop=True)
 
-    str_to_int = lambda x: np.asarray(
-        [
-            int(item)
-            for item in x.replace("[", "").replace("]", "").split(" ")
-            if len(item) > 0
-        ]
-    )
+    #str_to_int = lambda x: np.asarray(
+        #[
+            #int(item)
+            #for item in x.replace("[", "").replace("]", "").split(" ")
+            #if len(item) > 0
+        #]
+    #)
 
-    coords = coords.applymap(str_to_int)
+    #coords = coords.applymap(str_to_int)
 
     neuron1_df = sna.get_pmap_infolist(
-        coords.iloc[:, 0], pmap, labels[: len(labels) // 2]
+        coords.iloc[:, 0], pmap, labels[: len(labels) // 2], spatial_average
     )
 
     neuron2_df = sna.get_pmap_infolist(
-        coords.iloc[:, 1], pmap, labels[len(labels) // 2 : len(labels)]
+        coords.iloc[:, 1], pmap, labels[len(labels) // 2 : len(labels)], spatial_average
     )
 
-    out = pd.concat([neuron1_df, neuron2_df], axis=1, ignore_index=True)
+    out = pd.concat([neuron1_df, neuron2_df], axis=1, ignore_index=True).rename(
+        {k:v for k,v in zip(range(len(labels)),labels)},axis=1
+    )
     out["layer"] = layer_idx
 
     to_join = df.loc[df.img_idx == SM.iid_idx].reset_index(drop=True)
@@ -120,9 +123,10 @@ def stitch_info(
     spatial_average=(20, 20),
 ):
 
-    df = df.loc[
-        np.asarray([(df.neuron_r[i] < bounding_box) for i in df.neuron_np_coord.index])
-    ]
+    if bounding_box is not None:
+        df = df.loc[
+            (df.neuron1_r<180)&(df.neuron2_r<180)
+        ]
 
     info = get_info(
         df,
