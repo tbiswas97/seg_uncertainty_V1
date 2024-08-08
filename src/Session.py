@@ -29,9 +29,9 @@ class Session:
     Initiate from session .mat file
     """
 
-    def __init__(self, mat, _type="utah", neuron_exclusion=True,im_size=(320,320)):
+    def __init__(self, mat, _type="utah", neuron_exclusion=True, im_size=(320, 320)):
         """
-        Initializes Session object from .mat file 
+        Initializes Session object from .mat file
 
         Parameters:
         -----------
@@ -97,7 +97,7 @@ class Session:
             else:
                 self._neuron_exclusion = False
                 self.neuron_locations = None
-            #TODO: check neuron exclusion for neuropixel
+            # TODO: check neuron exclusion for neuropixel
 
     def use_probe(self, num=1) -> None:
         if num is not None:
@@ -207,15 +207,15 @@ class Session:
         out = tb.is_centered_xy(self.XYch, origin=(0, 0), thresh=thresh, d=d)
         locations = ["excised", "center", "off_center"]
         location_codes = [0, 1, 2]
-        #codes match the output of tb.is_centered_xy
+        # codes match the output of tb.is_centered_xy
 
         temp = zip(locations, location_codes)
 
         self.neuron_locations = {k: np.where(np.asarray(out) == v)[0] for k, v in temp}
-        #looks like: 
-        #{0: [0,1,0,...,0,1],
+        # looks like:
+        # {0: [0,1,0,...,0,1],
         # 1: [1,0,0...,1,0]
-        #}
+        # }
         # for location codes in list location_codes
 
         self.spike_counts = np.sum(self.resp_train, axis=-1)
@@ -250,7 +250,9 @@ class Session:
             if self.probe:
                 list of coords for the given probe
         """
-        _transform = lambda x: tb.transform_coord_system(x,size=self.im_size) if transform else x
+        _transform = lambda x: (
+            tb.transform_coord_system(x, size=self.im_size) if transform else x
+        )
         coords_list = self.xy_coords
         coords = [_transform(item) for item in coords_list]
 
@@ -283,11 +285,11 @@ class Session:
             included neurons that should be unresponsive
         mr_thresh : float
             a threshold for neuron modulation ratios
-        annular_excision: bool 
-            if True, then the "excised" neurons are excluded from downstream analysis 
+        annular_excision: bool
+            if True, then the "excised" neurons are excluded from downstream analysis
             if False, then the "excised" neurons are reassigned to be "off_center"
         use_session_vars : bool
-            if False, metrics are calculated from the spike train itself 
+            if False, metrics are calculated from the spike train itself
             if True metrics are calculated from fields in the Session object (.mat file)
 
         """
@@ -298,21 +300,18 @@ class Session:
             "alpha": alpha,
             "unresponsive_alpha": unresponsive_alpha,
             "mr_thresh": mr_thresh,
-            "annular_excision":annular_excision
+            "annular_excision": annular_excision,
         }
 
         if annular_excision:
             self.get_neuron_locations(thresh=thresh, d=d)
         else:
             self.get_neuron_locations(thresh=thresh, d=d)
-            concat = np.concatenate([
-                self.neuron_locations["off_center"],
-                self.neuron_locations["excised"]])
+            concat = np.concatenate(
+                [self.neuron_locations["off_center"], self.neuron_locations["excised"]]
+            )
 
-            d = {
-                "center":self.neuron_locations["center"],
-                "off_center": concat
-            }
+            d = {"center": self.neuron_locations["center"], "off_center": concat}
             self.neuron_locations = d
 
         self.get_mean_sc(use_session_vars=use_session_vars)
@@ -381,6 +380,7 @@ class Session:
         calculate_delta_rsc=False,
         clean=False,
         analysis="pairwise",
+        all_trials=False,
     ):
         if analysis == "pairwise":
             all_possible_pairs = list(
@@ -406,9 +406,7 @@ class Session:
 
             for im in idxs:
                 df = self._get_im_df(
-                    im, 
-                    sample_neurons=sample_neurons, 
-                    analysis=analysis
+                    im, sample_neurons=sample_neurons, analysis=analysis
                 )
                 to_concat.append(df)
 
@@ -453,9 +451,7 @@ class Session:
 
             for im in idxs:
                 df = self._get_im_df(
-                    im, 
-                    sample_neurons=sample_neurons, 
-                    analysis=analysis
+                    im, sample_neurons=sample_neurons, analysis=analysis
                 )
                 to_concat.append(df)
 
@@ -463,20 +459,22 @@ class Session:
 
             return out
 
-    def _get_im_df(self, im, sample_neurons=None, analysis="pairwise"):
+    def _get_im_df(
+        self, im, sample_neurons=None, analysis="pairwise", all_trials=False
+    ):
         """
         Extracts the meaningful info from a given image
-        
+
         Params:
         -------
-        im : int 
+        im : int
             Image index
-        
-        sample_neurons : float 
-            between 0 and 1, if sampling a fraction of neurons 
-        
+
+        sample_neurons : float
+            between 0 and 1, if sampling a fraction of neurons
+
         analysis : str
-            "single-neuron" : extracts single-neuron metrics (default to using Session vars) 
+            "single-neuron" : extracts single-neuron metrics (default to using Session vars)
             "pairwise" : extracts pairwise metrics (R_sc)
         """
         responsive_neurons = self._get_responsive_neurons_at_image(im)
@@ -503,10 +501,12 @@ class Session:
                 tb.euclidean_distance(self.XYch[pair[0]], origin) for pair in pairs
             ]
             d["neuron1_r"] = [
-                tb.get_polar_coord(self.XYch[pair[0]], origin=origin)[0] for pair in pairs
+                tb.get_polar_coord(self.XYch[pair[0]], origin=origin)[0]
+                for pair in pairs
             ]
             d["neuron1_theta"] = [
-                tb.get_polar_coord(self.XYch[pair[0]], origin=origin)[1] for pair in pairs
+                tb.get_polar_coord(self.XYch[pair[0]], origin=origin)[1]
+                for pair in pairs
             ]
             d["neuron1_pos"] = [self._get_neuron_location(pair[0]) for pair in pairs]
             d["neuron1_xy_coord"] = [parse_nan(self.XYch[pair[0]]) for pair in pairs]
@@ -516,17 +516,23 @@ class Session:
                 tb.euclidean_distance(self.XYch[pair[1]], origin) for pair in pairs
             ]
             d["neuron2_r"] = [
-                tb.get_polar_coord(self.XYch[pair[1]], origin=origin)[0] for pair in pairs
+                tb.get_polar_coord(self.XYch[pair[1]], origin=origin)[0]
+                for pair in pairs
             ]
             d["neuron2_theta"] = [
-                tb.get_polar_coord(self.XYch[pair[1]], origin=origin)[1] for pair in pairs
+                tb.get_polar_coord(self.XYch[pair[1]], origin=origin)[1]
+                for pair in pairs
             ]
             d["neuron2_pos"] = [self._get_neuron_location(pair[1]) for pair in pairs]
             d["neuron2_xy_coord"] = [parse_nan(self.XYch[pair[1]]) for pair in pairs]
             d["neuron2_np_coord"] = [self.np_coords[pair[1]] for pair in pairs]
             d["distance"] = [self._get_dist_between_neurons(pair) for pair in pairs]
-            d["rsc_small"] = [self._get_rsc_at_image(pair, im, "small") for pair in pairs]
-            d["rsc_large"] = [self._get_rsc_at_image(pair, im, "large") for pair in pairs]
+            d["rsc_small"] = [
+                self._get_rsc_at_image(pair, im, "small") for pair in pairs
+            ]
+            d["rsc_large"] = [
+                self._get_rsc_at_image(pair, im, "large") for pair in pairs
+            ]
 
             df = pd.DataFrame.from_dict(d)
 
@@ -556,61 +562,109 @@ class Session:
 
             return df
         elif analysis == "single-neuron":
-            #responsive_neurons are all the neurons responding in this particular image
-            #FOR SMALL PRESENTATION 
+            # responsive_neurons are all the neurons responding in this particular image
+            # FOR SMALL PRESENTATION
             d = {}
-            d["img_idx"] = [im]*len(responsive_neurons)
-            d["presentation"] = ["small"]*len(responsive_neurons)
+            d["img_idx"] = [im] * len(responsive_neurons)
+            d["presentation"] = ["small"] * len(responsive_neurons)
             d["neuron"] = responsive_neurons
             d["neuron_distance_from_origin"] = [
-                tb.euclidean_distance(self.XYch[neuron], origin) for neuron in responsive_neurons
+                tb.euclidean_distance(self.XYch[neuron], origin)
+                for neuron in responsive_neurons
             ]
             d["neuron_r"] = [
-                tb.get_polar_coord(self.XYch[neuron], origin=origin)[0] for neuron in responsive_neurons
+                tb.get_polar_coord(self.XYch[neuron], origin=origin)[0]
+                for neuron in responsive_neurons
             ]
             d["neuron_theta"] = [
-                tb.get_polar_coord(self.XYch[neuron], origin=origin)[1] for neuron in responsive_neurons
+                tb.get_polar_coord(self.XYch[neuron], origin=origin)[1]
+                for neuron in responsive_neurons
             ]
-            d["neuron_xy_coord"] = [parse_nan(self.XYch[neuron]) for neuron in responsive_neurons]
-            d["neuron_np_coord"] = [self.np_coords[neuron] for neuron in responsive_neurons]
-            d["neuron_mean_sc"] = [self.MM_small[neuron,im] for neuron in responsive_neurons]
-            d["neuron_var_sc"] = [self.VV_small[neuron,im] for neuron in responsive_neurons]
-            d["neuron_ff_sc"] = [self.FF_small[neuron,im] for neuron in responsive_neurons]
-            d["neuron_modulation_ratio"] = [self.MM_large[neuron,im]/self.MM_small[neuron,im] for neuron in responsive_neurons]
+            d["neuron_xy_coord"] = [
+                parse_nan(self.XYch[neuron]) for neuron in responsive_neurons
+            ]
+            d["neuron_np_coord"] = [
+                self.np_coords[neuron] for neuron in responsive_neurons
+            ]
+            d["neuron_trials_sc"] = [
+                self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["small"], ...][
+                    neuron, im, :
+                ]
+                for neuron in responsive_neurons
+            ]
+            d["neuron_mean_sc"] = [
+                self.MM_small[neuron, im] for neuron in responsive_neurons
+            ]
+            d["neuron_var_sc"] = [
+                self.VV_small[neuron, im] for neuron in responsive_neurons
+            ]
+            d["neuron_ff_sc"] = [
+                self.FF_small[neuron, im] for neuron in responsive_neurons
+            ]
+            d["neuron_modulation_ratio"] = [
+                self.MM_large[neuron, im] / self.MM_small[neuron, im]
+                for neuron in responsive_neurons
+            ]
 
-            #FOR LARGE PRESENTATION
+            # FOR LARGE PRESENTATION
             dd = {}
-            dd["img_idx"] = [im]*len(responsive_neurons)
-            dd["presentation"] = ["large"]*len(responsive_neurons)
+            dd["img_idx"] = [im] * len(responsive_neurons)
+            dd["presentation"] = ["large"] * len(responsive_neurons)
             dd["neuron"] = responsive_neurons
             dd["neuron_distance_from_origin"] = [
-                tb.euclidean_distance(self.XYch[neuron], origin) for neuron in responsive_neurons
+                tb.euclidean_distance(self.XYch[neuron], origin)
+                for neuron in responsive_neurons
             ]
             dd["neuron_r"] = [
-                tb.get_polar_coord(self.XYch[neuron], origin=origin)[0] for neuron in responsive_neurons
+                tb.get_polar_coord(self.XYch[neuron], origin=origin)[0]
+                for neuron in responsive_neurons
             ]
             dd["neuron_theta"] = [
-                tb.get_polar_coord(self.XYch[neuron], origin=origin)[1] for neuron in responsive_neurons
+                tb.get_polar_coord(self.XYch[neuron], origin=origin)[1]
+                for neuron in responsive_neurons
             ]
-            dd["neuron_xy_coord"] = [parse_nan(self.XYch[neuron]) for neuron in responsive_neurons]
-            dd["neuron_np_coord"] = [self.np_coords[neuron] for neuron in responsive_neurons]
-            dd["neuron_mean_sc"] = [self.MM_large[neuron,im] for neuron in responsive_neurons]
-            dd["neuron_var_sc"] = [self.VV_large[neuron,im] for neuron in responsive_neurons]
-            dd["neuron_ff_sc"] = [self.FF_large[neuron,im] for neuron in responsive_neurons]
-            dd["neuron_modulation_ratio"] = [self.MM_large[neuron,im]/self.MM_small[neuron,im] for neuron in responsive_neurons]
+            dd["neuron_xy_coord"] = [
+                parse_nan(self.XYch[neuron]) for neuron in responsive_neurons
+            ]
+            dd["neuron_np_coord"] = [
+                self.np_coords[neuron] for neuron in responsive_neurons
+            ]
+            dd["neuron_trials_sc"] = [
+                self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["large"], ...][
+                    neuron, im, :
+                ]
+                for neuron in responsive_neurons
+            ]
+            dd["neuron_mean_sc"] = [
+                self.MM_large[neuron, im] for neuron in responsive_neurons
+            ]
+            dd["neuron_var_sc"] = [
+                self.VV_large[neuron, im] for neuron in responsive_neurons
+            ]
+            dd["neuron_ff_sc"] = [
+                self.FF_large[neuron, im] for neuron in responsive_neurons
+            ]
+            dd["neuron_modulation_ratio"] = [
+                self.MM_large[neuron, im] / self.MM_small[neuron, im]
+                for neuron in responsive_neurons
+            ]
 
-            if self._neuron_exclusion: 
-                d["neuron_pos"] = [self._get_neuron_location(neuron) for neuron in responsive_neurons]
-                dd["neuron_pos"] = [self._get_neuron_location(neuron) for neuron in responsive_neurons]
+            if self._neuron_exclusion:
+                d["neuron_pos"] = [
+                    self._get_neuron_location(neuron) for neuron in responsive_neurons
+                ]
+                dd["neuron_pos"] = [
+                    self._get_neuron_location(neuron) for neuron in responsive_neurons
+                ]
 
-            #CONCAT DFS: 
+            # CONCAT DFS:
             df_small = pd.DataFrame.from_dict(d)
             df_large = pd.DataFrame.from_dict(dd)
-            
-            df = pd.concat([df_small,df_large],ignore_index=True)
+
+            df = pd.concat([df_small, df_large], ignore_index=True)
 
             return df
-    
+
     def get_neuron_info(self):
         """
         Outputs a dataframe with positional and index information for all center and off_center neurons
@@ -782,17 +836,19 @@ class Session:
             :, SMALL_LARGE_IDXS["large"], ...
         ].mean(axis=-1)
 
-        #TODO: if comparing across sessinos then 
-        self.VV_small = self.resp_train.sum(axis=-1)[
-            :, SMALL_LARGE_IDXS["small"], ...
-        ].std(axis=-1)**2
+        # TODO: if comparing across sessinos then
+        self.VV_small = (
+            self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["small"], ...].std(axis=-1)
+            ** 2
+        )
 
-        self.VV_large = self.resp_train.sum(axis=-1)[
-            :, SMALL_LARGE_IDXS["large"], ...
-        ].std(axis=-1)**2
+        self.VV_large = (
+            self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["large"], ...].std(axis=-1)
+            ** 2
+        )
 
-        self.FF_small = self.VV_small/self.MM_small
-        self.FF_large = self.VV_large/self.MM_large
+        self.FF_small = self.VV_small / self.MM_small
+        self.FF_large = self.VV_large / self.MM_large
 
     def _get_neuron_modulation_ratio(self, idx, location):
         if location == "center":
@@ -842,7 +898,7 @@ class Session:
 
     def get_mean_sc(self, use_session_vars=True):
         """
-        Returns the spike count mean, variance, and Fano Factor 
+        Returns the spike count mean, variance, and Fano Factor
 
         Params:
         --------
@@ -850,7 +906,7 @@ class Session:
             or directly from the spike train
         """
         if use_session_vars:
-            #although called fr, these variables are looking at spike count
+            # although called fr, these variables are looking at spike count
             fr_small = self.MM_small / 1
             fr_large = self.MM_large / 1
 
