@@ -128,6 +128,13 @@ def stitch_info(
             (df.neuron1_r<180)&(df.neuron2_r<180)
         ]
 
+    #use only those images that have not been excluded:
+    SMs_arr = np.asarray(SMs)
+    #included images: 
+    incl = df.img_idx.unique().astype(int)
+    
+    SMs = list(SMs_arr[incl])
+
     info = get_info(
         df,
         SMs,
