@@ -382,6 +382,7 @@ class Session:
         analysis="pairwise",
         all_trials=False,
     ):
+        #TODO: all_trials = False is very slow and should be deprecated
         if analysis == "pairwise":
             all_possible_pairs = list(
                 permutations(list(range(self.exp_info["n_neurons"])), 2)
@@ -451,7 +452,10 @@ class Session:
 
             for im in idxs:
                 df = self._get_im_df(
-                    im, sample_neurons=sample_neurons, analysis=analysis
+                    im,
+                    sample_neurons=sample_neurons,
+                    analysis=analysis,
+                    all_trials=all_trials,
                 )
                 to_concat.append(df)
 
@@ -586,12 +590,13 @@ class Session:
             d["neuron_np_coord"] = [
                 self.np_coords[neuron] for neuron in responsive_neurons
             ]
-            d["neuron_trials_sc"] = [
-                self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["small"], ...][
-                    neuron, im, :
+            if all_trials:
+                d["neuron_trials_sc"] = [
+                    self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["small"], ...][
+                        neuron, im, :
+                    ]
+                    for neuron in responsive_neurons
                 ]
-                for neuron in responsive_neurons
-            ]
             d["neuron_mean_sc"] = [
                 self.MM_small[neuron, im] for neuron in responsive_neurons
             ]
@@ -629,12 +634,13 @@ class Session:
             dd["neuron_np_coord"] = [
                 self.np_coords[neuron] for neuron in responsive_neurons
             ]
-            dd["neuron_trials_sc"] = [
-                self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["large"], ...][
-                    neuron, im, :
+            if all_trials:
+                dd["neuron_trials_sc"] = [
+                    self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["large"], ...][
+                        neuron, im, :
+                    ]
+                    for neuron in responsive_neurons
                 ]
-                for neuron in responsive_neurons
-            ]
             dd["neuron_mean_sc"] = [
                 self.MM_large[neuron, im] for neuron in responsive_neurons
             ]
