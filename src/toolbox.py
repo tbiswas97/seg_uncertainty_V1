@@ -16,7 +16,7 @@ import scipy.misc as misc
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
 from scipy.ndimage import laplace, gaussian_filter, gaussian_laplace
-from scipy.stats import bootstrap
+from scipy.stats import bootstrap, poisson
 from natsort import natsorted as ns
 from glob import glob as glob
 from matplotlib import image
@@ -1691,3 +1691,19 @@ def fit_dirichlet(df,n_components=4,norm_with=None):
     #print(new_cols)
 
     return pd.concat([df.reset_index().drop('index',axis=1),new_cols.reset_index().drop('index',axis=1)],axis=1,ignore_index=False)
+
+def generate_poisson_mixture(lambdas, weights, size=100):
+    np.random.seed(42)
+    
+    mixture = []
+
+    for l,weight in zip(lambdas,weights):
+        component = poisson.rvs(mu=l,size =int(weight*size))
+        mixture.append(component)
+
+    data = np.concatenate(mixture)
+
+    np.random.shuffle(data)
+
+    return data
+    
