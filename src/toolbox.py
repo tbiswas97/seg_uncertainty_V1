@@ -1707,3 +1707,21 @@ def generate_poisson_mixture(lambdas, weights, size=100):
 
     return data
     
+def em_poisson_mixture(data, n_components=2, max_iter=100, tol=1e-6):
+    n = len(data)
+    lambdas = np.random.random(n_components) * np.mean(data)
+    weights = np.ones(n_components)/n_components
+    
+    log_likelihood = []
+
+    for i in range(max_iter):
+        #E-step:
+        responsibilities = np.zeros((n,n_components))
+
+        for k in range(n_components):
+            responsibilities[:,k] = weights[k] * poisson.pmf(data, lambdas[k])
+        
+        responsibilities /= responsibilities.sum(axis=1, keepdims=True)
+
+        #M-step: 
+        weights = responsibilities.mean(axis=0)
