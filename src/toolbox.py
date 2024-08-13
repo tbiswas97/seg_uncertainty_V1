@@ -28,6 +28,7 @@ from sklearn.feature_selection import f_regression
 from sklearn import linear_model
 from sklearn.feature_extraction.image import extract_patches_2d
 from sklearn.metrics.cluster import contingency_matrix
+from sklearn.model_selection import LeaveOneOut
 
 import dirichlet
 # pixel per centimeter
@@ -1709,7 +1710,14 @@ def generate_poisson_mixture(lambdas, weights, size=100):
     
 def em_poisson_mixture(data, n_components=2, max_iter=100, tol=1e-6):
     n = len(data)
-    lambdas = np.random.random(n_components) * np.mean(data)
+    
+    #s = np.sort(data)
+    s = data
+
+    splits = np.array_split(s,n_components)
+
+    lambdas = np.asarray([np.mean(split)*np.random.random() for split in splits])
+
     weights = np.ones(n_components)/n_components
     
     log_likelihood = []
@@ -1725,3 +1733,56 @@ def em_poisson_mixture(data, n_components=2, max_iter=100, tol=1e-6):
 
         #M-step: 
         weights = responsibilities.mean(axis=0)
+        lambdas = (responsibilities.T @ data) / responsibilities.sum(axis=0)
+
+        # Calculate log likelihood
+        ll = np.sum(np.log(np.sum(responsibilities * poisson.pmf(data[:, None], lambdas), axis=1)))
+        log_likelihood.append(ll)
+
+        # Check convergence
+        if i > 0 and abs(log_likelihood[-1] - log_likelihood[-2]) < tol:
+            break
+
+        return weights, lambdas, log_likelihood
+
+def poisson_log_likelihood(data, weights,lambdas):
+
+    assert len(lambdas)==len(weights)
+    n_components = len(weights)
+
+    responsibilities = np.zeros((len(data),n_components))
+    for k in range(n_components):
+        responsibilities[:,k] = weights[k] * poisson.pmf(data, lambdas[k])
+    
+    responsibilities /= responsibilities.sum(axis=1, keepdims=True)
+    ll = np.sum(np.log(np.sum(responsibilities * poisson.pmf(data[:, None], lambdas), axis=1)))
+
+    return ll
+
+
+
+#def get_poisson_modality_index(data,epochs = 100):
+    
+    #ress = []
+    #for i in range(epochs):
+        #out = [em_poisson_mixture(data,n_components = i+1)[-1][-1] for i in range(2)]
+        #diff = lambda x: x[0] - x[1]
+        
+        #res = diff(np.asarray(out))
+
+        #ress.append(res)
+    
+    #return sum(ress)/len(ress)
+
+def get_poisson_modality_index(data):
+
+    loo = LeaveOneOut()
+
+    likelihood_ratio = []
+    for i,(train_idx,test_idx) in enumerate(loo.split(data)):
+        fits = [em_poisson_mixture(data[train_idx],n_components = i+1) for i in range(2)]
+        cv_1 = poisson_log_likelihood(data[test_idx],fits[0][0],fits[0][1])
+        cv_2 = poisson_log_likelihood(data[test_idx],fits[1][0],fits[1][1])
+        likelihood_ratio.append(cv_1-cv_2)
+    
+    return np.mean(likelihood_ratio)
