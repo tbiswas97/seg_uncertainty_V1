@@ -380,7 +380,7 @@ class Session:
         calculate_delta_rsc=False,
         clean=False,
         analysis="pairwise",
-        all_trials=False,
+        calculate_pmi=False,
     ):
         #TODO: all_trials = False is very slow and should be deprecated
         if analysis == "pairwise":
@@ -455,7 +455,7 @@ class Session:
                     im,
                     sample_neurons=sample_neurons,
                     analysis=analysis,
-                    all_trials=all_trials,
+                    calculate_pmi=calculate_pmi,
                 )
                 to_concat.append(df)
 
@@ -464,7 +464,7 @@ class Session:
             return out
 
     def _get_im_df(
-        self, im, sample_neurons=None, analysis="pairwise", all_trials=False
+        self, im, sample_neurons=None, analysis="pairwise", calculate_pmi=False
     ):
         """
         Extracts the meaningful info from a given image
@@ -590,13 +590,6 @@ class Session:
             d["neuron_np_coord"] = [
                 self.np_coords[neuron] for neuron in responsive_neurons
             ]
-            if all_trials:
-                d["neuron_trials_sc"] = [
-                    self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["small"], ...][
-                        neuron, im, :
-                    ]
-                    for neuron in responsive_neurons
-                ]
             d["neuron_mean_sc"] = [
                 self.MM_small[neuron, im] for neuron in responsive_neurons
             ]
@@ -610,6 +603,12 @@ class Session:
                 self.MM_large[neuron, im] / self.MM_small[neuron, im]
                 for neuron in responsive_neurons
             ]
+
+            if calculate_pmi:
+                d["pmi"] = [tb.get_poisson_modality_index(self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["small"], ...][
+                        neuron, im, :
+                    ]) for neuron in responsive_neurons]
+
 
             # FOR LARGE PRESENTATION
             dd = {}
@@ -634,13 +633,6 @@ class Session:
             dd["neuron_np_coord"] = [
                 self.np_coords[neuron] for neuron in responsive_neurons
             ]
-            if all_trials:
-                dd["neuron_trials_sc"] = [
-                    self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["large"], ...][
-                        neuron, im, :
-                    ]
-                    for neuron in responsive_neurons
-                ]
             dd["neuron_mean_sc"] = [
                 self.MM_large[neuron, im] for neuron in responsive_neurons
             ]
@@ -654,6 +646,10 @@ class Session:
                 self.MM_large[neuron, im] / self.MM_small[neuron, im]
                 for neuron in responsive_neurons
             ]
+            if calculate_pmi:
+                dd["pmi"] = [tb.get_poisson_modality_index(self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["large"], ...][
+                        neuron, im, :
+                    ]) for neuron in responsive_neurons]
 
             if self._neuron_exclusion:
                 d["neuron_pos"] = [
