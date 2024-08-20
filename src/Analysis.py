@@ -86,19 +86,10 @@ class Analysis:
             seg._reshape_model_weights(SM, layers_of_interest)
             # constructs SM.pmap attribute from SM.model_res
 
-        kwargs = {
-            "sample_ims": len(self.SMs),
-            "sample_neurons": 1,
-            "random": False,
-            "calculate_delta_rsc": False,
-            "clean": True,
-            "analysis": mode,
-        }
-
         if mode == "single-neuron":
             from analysis import single_neuron_analysis as sna
 
-            df = self.Session.get_df(**kwargs)
+            df = self.Session.df
 
             out = sna.stitch_info(
                 df,
