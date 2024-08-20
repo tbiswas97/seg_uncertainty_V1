@@ -27,11 +27,12 @@ device = torch.device("cpu")
 #weights = "DEFAULT"
 #weights = "IMAGENET1K_V1"
 pretrained = True
+#select VGG_19 from torchvision
 deepnet = models.vgg19(pretrained=pretrained).features.to(device).eval()
 # number of layers (max 16)
 L = 16
 
-
+#DEPRECATED
 def make_image_stack(dat, n_im=None):
     """
     Input: dat - a 4D array (n_im, height, width, channels)
@@ -116,8 +117,10 @@ def _fit_model(
     """
     #im_all = dat
     im = dat
+    #list of K components to fit model for
     K_list = n_components
     ny, nx = im.shape[0:2]
+    #output size at each convolutional layer of deepnet
     N_list = np.array(
         [
             (ny, nx),
@@ -139,13 +142,16 @@ def _fit_model(
         ]
     )
 
+    #embedding dimensions at each convolutional layer of deepnet
+    d_list = np.array(
+        [64, 64, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512, 512, 512, 512, 512]
+    )
+
+    #neighborhood size used for spatial smoothing
     neigh_size_list = 1.0 * np.array(
         [17, 17, 13, 13, 9, 9, 9, 9, 3, 3, 3, 3, 3, 3, 3, 3]
     )  # -1
 
-    d_list = np.array(
-        [64, 64, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512, 512, 512, 512, 512]
-    )
 
     # FIXME: for ppca = True, model b and c don't work
     ppca = False

@@ -273,7 +273,7 @@ class SegmentationMap:
             model_im = import_utils.norm_im(model_im)
 
         if keep:
-            # run model 'c'
+            # run model 'c' keep results at each EM iteration
             if "c" in model:
                 self.model_res["c"], self._res_iter = seg._fit_model(
                     model_im,

@@ -28,6 +28,7 @@ Helper: get features from each layer and send them back as numpy arrays
 """
 
 
+#Get deep features from <model> as applied to <im_torch>
 def get_conv2d_features(model, im_torch):
     deep_features = []
     for i in range(1, len(model) + 1):
@@ -612,25 +613,34 @@ def model_c(
     keep=False,
     prior_weights="ext3",
 ):
+    #do not use KMeans initialization if initial (groundtruth) map is provided
     if gt is not None: 
         kmeans = False
     model = copy.deepcopy(model)
     ny, nx = im.shape[:2]
+    #initial n_components for model
     K = K_list.shape[0]
+    #reshape image so color channels are the last dimension
     im_torch = (
         torch.from_numpy(np.moveaxis(im, [0, 1, 2], [1, 2, 0])).float().unsqueeze(0)
     )
+    #prior_weights = None turns off spatial smoothing?
     prior_weights = prior_weights
 
     
+    #Initializes the results for arrays used in FlexMM
     Xpca = np.zeros(L, dtype=object)
     res = np.zeros((L, K, 3, 1), dtype=object)
     proba_maps = np.zeros((n_iter, L, K, 2), dtype=object)
 
+    #get deep features from VGG-19
     deep_features = get_conv2d_features(model, im_torch)
 
+
     #Initializes the FlexMM object for each layer and each number of components
+    #for each layer...
     for l in range(L):
+        #if not the first layer, mean pool using a 2x2 window
         if N_list[l][0] != ny and l > 0:
             Xpca0 = pooling(Xpca0.reshape((ny, nx, Xpca0.shape[-1])), (2, 2)).reshape(
                 ny // 2 * nx // 2, Xpca0.shape[-1]
@@ -641,21 +651,30 @@ def model_c(
         else:
             prior_init = True
 
+        #initialize PCA Object from sklearn
         res[l, 0, 0, 0] = PCA(n_components=0.95)
+        #set embedding dimension of features
         d = d_list[l]
+        #set im size dimenstion of features
         ny, nx = N_list[l]
+        #reshape features to im size and embedding dimension at layer
         X = deep_features[l].reshape(d, ny * nx).T
 
+        #fit PCA to deep_features from VGG-19
         Xpca[l] = res[l, 0, 0, 0].fit_transform(X)
 
         if l == 0:
+            # Xpca0 is the PCA result from the first layer of features
             Xpca0 = np.copy(Xpca[0])
         else:
             Xpca[l] = np.concatenate((Xpca[l], Xpca0), 1)
 
         k = 0
+        #for each n_components
         for kk in K_list:
+            #create a ny*nx by k vector of 1s (prior SMM object means)
             prior_means_init = np.ones((ny * nx, kk)) / kk
+            #prior variance for the SMM object
             prior_var = 1.0
             if gmm:
                 res[l, k, 1, 0] = GMM(
@@ -706,6 +725,7 @@ def model_c(
             ny, nx = N_list[l]
             if l == 0:
                 # SMM
+                #initialize the mixture model at the current layer
                 res[l, k, 2, 0]._initialization_step(
                     Xpca[l],
                     gt=gt,

@@ -132,9 +132,13 @@ class SMM(sklearn.base.BaseEstimator):
                  init_params='wqmcd', ppca=False, n_pca=10):
 
         # Store the parameters as class attributes
+        #sets number of components in mixture
         self.n_components = n_components
+        #sets covariance type to use?
         self.covariance_type = covariance_type
+        #FIXME: prior_weights = "ext3" working but not prior_weights=None
         self.prior_weights = prior_weights
+        #spatial smoothing case
         if self.prior_weights!=None:
             self.prior_means = prior_means
             self.prior_var = prior_var
@@ -147,11 +151,14 @@ class SMM(sklearn.base.BaseEstimator):
             self.neighbors /= self.neighbors.sum()
             self.neighbors = self.neighbors[...,np.newaxis]
             self.im_shape = im_shape
+        #not the spatial smoothing case?
         else:
             self.neigh_size = neigh_size
             Y, X = np.mgrid[-(neigh_size-1)//2:(neigh_size-1)//2+1,
                             -(neigh_size-1)//2:(neigh_size-1)//2+1]
+            #sets up a 2d Gaussian based on neigh_size
             self.neighbors = tb.gauss2d(X,Y,neigh_size/4.)
+            #normalizes 2d Gaussian kernel
             self.neighbors /= self.neighbors.sum()
             self.neighbors = self.neighbors[...,np.newaxis]
             self.im_shape = im_shape
