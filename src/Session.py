@@ -460,6 +460,7 @@ class Session:
                 to_concat.append(df)
 
             out = pd.concat(to_concat, ignore_index=True)
+            self.df=out
 
             return out
 
