@@ -414,9 +414,31 @@ class SMM(sklearn.base.BaseEstimator):
             
         if 'w' in self.init_params or not hasattr(self, 'weights_'):
             if self.prior_weights==None:
-                self.weights_ = np.tile(
-                        1.0 / self.n_components, self.n_components
-                        )
+                if gt is not None: 
+                    epsilon = 0.0001
+                    if gt_eps is not None:
+                        epsilon = gt_eps
+                    ny = gt.shape[0]
+                    nx = gt.shape[1]
+                    vec = np.reshape(gt,ny*nx)
+                    vals, counts = np.asarray(np.unique(vec,return_counts=True))
+                    #vals[counts<tb.THRESHOLD] = 0 
+                    adj_vals = vals[vals==vals]
+                    indicators = []
+                    for val in adj_vals:
+                        indicator = np.zeros(vec.shape)
+                        indicator += epsilon
+                        indicator[vec==val]= 1-(len(adj_vals)-1)*epsilon
+                        indicators.append(indicator)
+                    indicators = np.asarray(indicators)
+                    self.weights_ = indicators.T
+                    assert self.weights_.shape[1]==self.n_components
+                    self.weights_ /= self.weights_.sum(axis=1, keepdims=True)
+                    #print(self.prior_means/self.prior_means.sum(axis=1, keepdims=True).shape)
+                else:
+                    self.weights_ = np.tile(
+                            1.0 / self.n_components, self.n_components
+                            )
             elif self.prior_weights in {'ext','ext2','ext3'}:
                 if gt is not None: 
                     epsilon = 0.0001

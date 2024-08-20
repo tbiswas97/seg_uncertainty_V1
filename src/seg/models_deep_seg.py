@@ -610,6 +610,7 @@ def model_c(
     light=True,
     verbose=True,
     keep=False,
+    prior_weights="ext3",
 ):
     if gt is not None: 
         kmeans = False
@@ -619,7 +620,7 @@ def model_c(
     im_torch = (
         torch.from_numpy(np.moveaxis(im, [0, 1, 2], [1, 2, 0])).float().unsqueeze(0)
     )
-    prior_weights = "ext3"
+    prior_weights = prior_weights
 
     Xpca = np.zeros(L, dtype=object)
     res = np.zeros((L, K, 3, 1), dtype=object)

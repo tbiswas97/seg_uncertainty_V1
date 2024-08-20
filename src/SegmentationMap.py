@@ -194,7 +194,8 @@ class SegmentationMap:
         use_grayscale=False,
         keep=False,
         init=None,
-        init_eps=None
+        init_eps=None,
+        prior_weights="ext3"
     ):
         """
         Runs perceptual segmentation model on self.im
@@ -224,6 +225,10 @@ class SegmentationMap:
             Array of shape(image height, image width), this is the initial guess during segmentation fitting 
         init_eps: float
             This is the amount of uncertainty injected with the initial guess, if None 0.0001 is used as default 
+        prior_weights: str
+            determines the nature of the spatial smoothing
+                "ext3" (default): uses Dirichlet hyperparameter
+                None: no spatial smoothing 
 
 
         Raises:
