@@ -622,6 +622,7 @@ def model_c(
     )
     prior_weights = prior_weights
 
+    
     Xpca = np.zeros(L, dtype=object)
     res = np.zeros((L, K, 3, 1), dtype=object)
     proba_maps = np.zeros((n_iter, L, K, 2), dtype=object)

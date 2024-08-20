@@ -186,6 +186,7 @@ def _fit_model(
             light=light,
             n_pca=n_pca,
             verbose=False,
+            prior_weights=prior_weights
         )
     elif model_type == "b":
         _fit = lambda x: model_b(
@@ -222,7 +223,8 @@ def _fit_model(
             light=light,
             n_pca=n_pca,
             verbose=False,
-            keep=keep
+            keep=keep,
+            prior_weights=prior_weights
         )
 
         if keep:

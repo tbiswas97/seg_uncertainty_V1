@@ -282,7 +282,8 @@ class SegmentationMap:
                     layer=layer_stop,
                     keep=keep,
                     init=init,
-                    init_eps=init_eps
+                    init_eps=init_eps,
+                    prior_weights=prior_weights
                 )
         else:
             # run model 'a'
@@ -291,7 +292,8 @@ class SegmentationMap:
                     model_im,
                     model_type="a",
                     n_components=n_components,
-                    layer=layer_stop
+                    layer=layer_stop,
+                    prior_weights=prior_weights
                 )
             # run model 'b'
             if "b" in model:
@@ -307,7 +309,8 @@ class SegmentationMap:
                     model_im,
                     model_type="c",
                     n_components=n_components,
-                    layer=layer_stop
+                    layer=layer_stop,
+                    prior_weights=prior_weights
                 )
         d = self.model_res
 

@@ -147,7 +147,14 @@ class SMM(sklearn.base.BaseEstimator):
             self.neighbors /= self.neighbors.sum()
             self.neighbors = self.neighbors[...,np.newaxis]
             self.im_shape = im_shape
-            
+        else:
+            self.neigh_size = neigh_size
+            Y, X = np.mgrid[-(neigh_size-1)//2:(neigh_size-1)//2+1,
+                            -(neigh_size-1)//2:(neigh_size-1)//2+1]
+            self.neighbors = tb.gauss2d(X,Y,neigh_size/4.)
+            self.neighbors /= self.neighbors.sum()
+            self.neighbors = self.neighbors[...,np.newaxis]
+            self.im_shape = im_shape
         self.random_state = random_state
         self.tol = tol
         self.min_covar = min_covar
