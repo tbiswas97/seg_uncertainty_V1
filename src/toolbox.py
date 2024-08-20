@@ -16,7 +16,7 @@ import scipy.misc as misc
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
 from scipy.ndimage import laplace, gaussian_filter, gaussian_laplace
-from scipy.stats import bootstrap, poisson
+from scipy.stats import bootstrap, poisson, entropy
 from natsort import natsorted as ns
 from glob import glob as glob
 from matplotlib import image
@@ -1716,7 +1716,7 @@ def em_poisson_mixture(data, n_components=2, max_iter=100, tol=1e-6):
 
     splits = np.array_split(s,n_components)
 
-    lambdas = np.asarray([np.mean(split)*np.random.random() for split in splits])
+    lambdas = np.asarray([np.max(split)*np.random.random() for split in splits])
 
     weights = np.ones(n_components)/n_components
     
@@ -1785,4 +1785,25 @@ def get_poisson_modality_index(data):
         cv_2 = poisson_log_likelihood(data[test_idx],fits[1][0],fits[1][1])
         likelihood_ratio.append(cv_1-cv_2)
     
-    return np.mean(likelihood_ratio)
+    return np.median(likelihood_ratio)
+
+def p_add_epsilon(df,epsilon):
+    cols = list(df.columns)
+    start_idx = cols.index("neuron_p0")
+
+    p = df.iloc[:,start_idx:start_idx+4].values
+    
+    p = p+epsilon 
+    p = np.divide(p,p.sum(axis=1)[...,np.newaxis])
+
+    assert p.sum(axis=1).all() == 1
+
+    entr = entropy(p, axis=1)
+
+    entr[np.isnan(entr)] = 0
+
+    df["eps_entropy"] = entr
+
+    return df,p
+    
+
