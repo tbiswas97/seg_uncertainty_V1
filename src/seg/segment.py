@@ -84,7 +84,8 @@ def _fit_model(
         keep=False,
         init=None,
         init_eps=None,
-        prior_weights="ext3"
+        prior_weights="ext3",
+        spatial_smoothing=True
     ):
     """
     Use to fit segmentation map to input image
@@ -151,6 +152,10 @@ def _fit_model(
     neigh_size_list = 1.0 * np.array(
         [17, 17, 13, 13, 9, 9, 9, 9, 3, 3, 3, 3, 3, 3, 3, 3]
     )  # -1
+    if spatial_smoothing:
+        neigh_size_list = neigh_size_list
+    else:
+        neigh_size_list = np.ones(neigh_size_list.shape)
 
 
     # FIXME: for ppca = True, model b and c don't work

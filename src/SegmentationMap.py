@@ -195,7 +195,8 @@ class SegmentationMap:
         keep=False,
         init=None,
         init_eps=None,
-        prior_weights="ext3"
+        prior_weights="ext3",
+        spatial_smoothing=True
     ):
         """
         Runs perceptual segmentation model on self.im
@@ -283,7 +284,8 @@ class SegmentationMap:
                     keep=keep,
                     init=init,
                     init_eps=init_eps,
-                    prior_weights=prior_weights
+                    prior_weights=prior_weights,
+                    spatial_smoothing=spatial_smoothing
                 )
         else:
             # run model 'a'
