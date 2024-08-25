@@ -517,6 +517,7 @@ def model_b(
                 ny, nx = N_list[l]
 
                 # SMM
+                #NOTE: does the work of "ext3"
                 res[l, k, 2, 0].prior_means = prior_wm_smm
                 res[l, k, 2, 0].prior_norm = prior_w_smm.sum()
 
@@ -676,22 +677,23 @@ def model_c(
             prior_means_init = np.ones((ny * nx, kk)) / kk
             #prior variance for the SMM object
             prior_var = 1.0
+            #NOTE: for default case params is "wmcd" (weights, menas, covariances, dofs)
             if gmm:
                 res[l, k, 1, 0] = GMM(
-                    n_components=kk,
-                    prior_weights=prior_weights,
-                    n_init=1,
-                    prior_means=prior_means_init,
-                    prior_var=prior_var,
-                    prior_init=prior_init,
-                    im_shape=(ny, nx),
-                    neigh_size=neigh_size_list[l],
-                    tol=1e-3,
-                    n_iter=200,
-                    params="w" + params + "mc",
-                    ppca=ppca,
-                    n_pca=n_pca,
-                )
+                        n_components=kk,
+                        prior_weights=prior_weights,
+                        n_init=1,
+                        prior_means=prior_means_init,
+                        prior_var=prior_var,
+                        prior_init=prior_init,
+                        im_shape=(ny, nx),
+                        neigh_size=neigh_size_list[l],
+                        tol=1e-3,
+                        n_iter=200,
+                        params="w" + params + "mc",
+                        ppca=ppca,
+                        n_pca=n_pca,
+                    )
             res[l, k, 2, 0] = SMM(
                 n_components=kk,
                 prior_weights=prior_weights,
@@ -710,13 +712,14 @@ def model_c(
 
             k += 1
 
-    # init
+    #NOTE: init
     if verbose:
         print("Initialization ...")
     for k in range(K):
         kk = K_list[k]
 
         for l in range(L):
+            #NOTE: Mixture models are fit to either pooled or unpooled data depending on the layer
             if N_list[l][0] != ny:
                 pool = True
             else:
@@ -725,7 +728,7 @@ def model_c(
             ny, nx = N_list[l]
             if l == 0:
                 # SMM
-                #initialize the mixture model at the current layer
+                #NOTE: initialize the mixture model at the current layer
                 res[l, k, 2, 0]._initialization_step(
                     Xpca[l],
                     gt=gt,
@@ -733,6 +736,7 @@ def model_c(
                     n_components_best=n_components_best,
                     use_kmeans=kmeans,
                 )
+                #NOTE: calculates the responsibilities after the initialization step
                 prior_param_smm = res[l, k, 2, 0]._posterior_proba(Xpca[l])  # Here
                 # GMM
                 if gmm:
@@ -781,17 +785,25 @@ def model_c(
         prior_wm_gmm = np.zeros(L, dtype=object)
         tau_gmm = np.zeros(L, dtype=object)
 
+    #NOTE: likelihood array initialization
     lkl_smm = np.zeros((K, L, n_iter))
+    #NOTE: prior means array initialization
     prior_means_smm = np.zeros((K, L), dtype=object)
+    #NOTE: prior var array initialization
     prior_var_smm = np.zeros((K, L))
+    #NOTE:?
     prior_wm_smm = np.zeros(L, dtype=object)
+    #NOTE: prior tau array initilization 
+    #NOTE tau = E(class|observation)
     tau_smm = np.zeros(L, dtype=object)
+    #NOTE: initialize prior degrees of freedom
     nu = np.zeros(L, dtype=object)
-    # EM
+#NOTE EXPECTATION-MAXIMIZATION STEPS:
     for k in range(K):
         kk = K_list[k]
 
         # SMM
+        #NOTE: calculate responsibilities from the initial guess for the first layer
         prior_param_smm = res[0, k, 2, 0]._posterior_proba(Xpca[0])
         # GMM
         if gmm:
@@ -807,18 +819,29 @@ def model_c(
             for l in range(L):
                 ny, nx = N_list[l]
                 # SMM
+                #DEBUG: this is where the code errors 
+                #if prior_weights is set to none
+                # SMM.neighbors is not created in SMM.__init__()
+                #NOTE: tau_smm are responsibilities of each mixture component
+                #NOTE: nu are the gammaweights (GSM mixer) for a particular mixture component
                 lkls_smm, tau_smm[l], nu[l] = res[l, k, 2, 0]._expectation_step(Xpca[l])
+                #NOTE: calculate the log-likelihood from the likelihood
                 lkl_smm[k, l, i] = np.log(lkls_smm).mean()
+                #NOTE: convolves responsibilites at every point with a 2D gaussian  
+                # each point gets the weighted average of the responibilities of each component
+                # because self.neighbors does not exist if prior_weights is None
                 prior_means_smm[k, l] = sp.ndimage.convolve(
                     tau_smm[l].reshape(ny, nx, kk),
                     res[l, k, 2, 0].neighbors,
                     mode="nearest",
                 ).reshape(ny * nx, kk)
+                # each point gets the weighted variance of the responibilities of each component
                 prior_var = sp.ndimage.convolve(
                     (tau_smm[l] ** 2).reshape(ny, nx, kk),
                     res[l, k, 2, 0].neighbors,
                     mode="nearest",
                 ).reshape(ny * nx, kk)
+                # normalize the variance?
                 prior_var -= prior_means_smm[k, l] ** 2
                 prior_var_smm[k, l] = prior_var.mean()
 
@@ -841,6 +864,7 @@ def model_c(
 
                 # component selection (maybe add weights)
                 tau_sum_smm += tau_smm[l].sum(0)
+                #NOTE: calculates the sum of all responsibilities
                 if gmm:
                     tau_sum_gmm += tau_gmm[l].sum(0)
                 n_sum += ny * nx
@@ -852,8 +876,10 @@ def model_c(
                 var_gmm = np.pad(prior_var_gmm[k], 1, mode="edge")
 
             n_list = np.pad(N_list, ((1, 1), (0, 0)), mode="edge")
+            #NOTE: normalization across layers
             for l in range(1, L + 1):
                 ny, nx = n_list[l]
+                #NOTE: take the product of the variance of responsibilities across layers
                 var_smm_prod = var_smm[l - 1 : l + 2]
                 var_smm_prod = np.prod(
                     var_smm_prod[np.newaxis] * (1 - np.eye(3)) + np.eye(3), axis=1
@@ -964,6 +990,7 @@ def model_c(
                 # res[l,k,2,0].taus = np.float32(res[l,k,2,0].taus)
 
     if keep:
+        #proba_maps are the output weights from each iteration of the M-step
         return res, proba_maps  # , lkl_smm, lkl_gmm
     else:
         return res
