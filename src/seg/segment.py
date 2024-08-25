@@ -103,7 +103,7 @@ def _fit_model(
         layer : int 
             number of layers of VGG neural network to extract features from 
         keep : bool
-            Set to True to keep the segmentation maps from every iteration of the EM algorithm
+            Set to True to keep the segmentation maps from every M-step of the EM algorithm
         init : np.array 
             Array of shape(image height, image width), this is the initial guess during segmentation fitting 
         init_eps: float
@@ -111,6 +111,7 @@ def _fit_model(
         prior_weights: str
             determines the nature of the spatial smoothing
                 "ext3" (default): uses Dirichlet hyperparameter
+                IDEA: 
                 None: no spatial smoothing 
 
     Output:
@@ -118,10 +119,10 @@ def _fit_model(
     """
     #im_all = dat
     im = dat
-    #list of K components to fit model for
+    #NOTE: list of K components to fit model for
     K_list = n_components
     ny, nx = im.shape[0:2]
-    #output size at each convolutional layer of deepnet
+    #NOTE: output size at each convolutional layer of deepnet
     N_list = np.array(
         [
             (ny, nx),
@@ -143,15 +144,17 @@ def _fit_model(
         ]
     )
 
-    #embedding dimensions at each convolutional layer of deepnet
+    #NOTE: embedding dimensions at each convolutional layer of deepnet
     d_list = np.array(
         [64, 64, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512, 512, 512, 512, 512]
     )
 
-    #neighborhood size used for spatial smoothing
+    #NOTE:neighborhood size used for spatial smoothing
     neigh_size_list = 1.0 * np.array(
         [17, 17, 13, 13, 9, 9, 9, 9, 3, 3, 3, 3, 3, 3, 3, 3]
     )  # -1
+    #FIXME:
+    #IDEA setting neigh_size_list to one should eliminate spatial smoothing?
     if spatial_smoothing:
         neigh_size_list = neigh_size_list
     else:
@@ -165,7 +168,7 @@ def _fit_model(
 
     # models are defined in models_deep_seg.py
     # FIXME: ref model output is not the correct size?
-    # FIXME: add init option to model a 
+    # TODO: add init option to model a 
     if model_type == "ref":
         _fit = lambda x: model_ref(
             deepnet,
@@ -239,6 +242,7 @@ def _fit_model(
         )
 
         if keep:
+            #proba_maps are the output weights from each iteration of the M-step
             res_arr,proba_maps = _fit(im)
         else:
             res_arr = _fit(im)
