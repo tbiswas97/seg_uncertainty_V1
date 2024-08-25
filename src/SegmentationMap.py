@@ -273,6 +273,8 @@ class SegmentationMap:
             model_im = self.make_grayscale(model_im)
             model_im = import_utils.norm_im(model_im)
 
+        #SEGMENTATION STEP: 
+        #calls files in seg/segment.py
         if keep:
             # run model 'c' keep results at each EM iteration
             if "c" in model:
@@ -316,6 +318,8 @@ class SegmentationMap:
                 )
         d = self.model_res
 
+        #CHANGED: used to build a nested dictionary in order to store data, 
+        # now use seg.segment._reshape_model_weights() instead
         # gen nested dictionary for seg maps
         #for key in d.keys():
             #self.seg_maps[key] = {}
