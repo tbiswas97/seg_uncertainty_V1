@@ -625,7 +625,9 @@ def model_c(
     im_torch = (
         torch.from_numpy(np.moveaxis(im, [0, 1, 2], [1, 2, 0])).float().unsqueeze(0)
     )
-    #prior_weights = None turns off spatial smoothing?
+    #CHANGED: #1 Try setting prior_weights to None to turn off spatial smoothing
+    #DEBUG: SMM.neighbors is not initialized in SMM.__init__
+    ## error in line 824
     prior_weights = prior_weights
 
     
