@@ -821,9 +821,6 @@ def model_c(
             for l in range(L):
                 ny, nx = N_list[l]
                 # SMM
-                #DEBUG: this is where the code errors 
-                #if prior_weights is set to none
-                # SMM.neighbors is not created in SMM.__init__()
                 #NOTE: tau_smm are responsibilities of each mixture component
                 #NOTE: nu are the gammaweights (GSM mixer) for a particular mixture component
                 lkls_smm, tau_smm[l], nu[l] = res[l, k, 2, 0]._expectation_step(Xpca[l])
@@ -831,18 +828,24 @@ def model_c(
                 lkl_smm[k, l, i] = np.log(lkls_smm).mean()
                 #NOTE: convolves responsibilites at every point with a 2D gaussian  
                 # each point gets the weighted average of the responibilities of each component
-                # because self.neighbors does not exist if prior_weights is None
-                prior_means_smm[k, l] = sp.ndimage.convolve(
-                    tau_smm[l].reshape(ny, nx, kk),
-                    res[l, k, 2, 0].neighbors,
-                    mode="nearest",
-                ).reshape(ny * nx, kk)
-                # each point gets the weighted variance of the responibilities of each component
-                prior_var = sp.ndimage.convolve(
-                    (tau_smm[l] ** 2).reshape(ny, nx, kk),
-                    res[l, k, 2, 0].neighbors,
-                    mode="nearest",
-                ).reshape(ny * nx, kk)
+                #DEBUG: self.neighbors does not exist if prior_weights is None
+                #CHANGED: try putting this in a conditional
+                if prior_weights is not None:
+                    prior_means_smm[k, l] = sp.ndimage.convolve(
+                        tau_smm[l].reshape(ny, nx, kk),
+                        res[l, k, 2, 0].neighbors,
+                        mode="nearest",
+                    ).reshape(ny * nx, kk)
+                    # each point gets the weighted variance of the responibilities of each component
+                    prior_var = sp.ndimage.convolve(
+                        (tau_smm[l] ** 2).reshape(ny, nx, kk),
+                        res[l, k, 2, 0].neighbors,
+                        mode="nearest",
+                    ).reshape(ny * nx, kk)
+                else:
+                    #CHANGED: assign prior_means and prior_var using responsibilities Tau
+                    prior_means_smm[k,l] = tau_smm[l].reshape(ny, nx, kk)
+                    prior_var = (tau_smm[l]**2).reshape(ny,nx,kk)
                 # normalize the variance?
                 prior_var -= prior_means_smm[k, l] ** 2
                 prior_var_smm[k, l] = prior_var.mean()
