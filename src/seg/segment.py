@@ -18,21 +18,22 @@ from joblib import dump, load
 # select device
 device = torch.device("cpu")
 # load model and send it to device for evaluation only
-#TODO:the parameter "pretrained" is deprecrtaed and may be removed, please used "weights" instead 
-#from torchvision.models import VGG_19.Weights
-#weights = VGG_19.Weights.DEFAULT
-#or 
-#weights = VGG_19.Weights.IMAGENET1K_V1
-#or use strings
-#weights = "DEFAULT"
-#weights = "IMAGENET1K_V1"
+# TODO:the parameter "pretrained" is deprecrtaed and may be removed, please used "weights" instead
+# from torchvision.models import VGG_19.Weights
+# weights = VGG_19.Weights.DEFAULT
+# or
+# weights = VGG_19.Weights.IMAGENET1K_V1
+# or use strings
+# weights = "DEFAULT"
+# weights = "IMAGENET1K_V1"
 pretrained = True
-#select VGG_19 from torchvision
+# select VGG_19 from torchvision
 deepnet = models.vgg19(pretrained=pretrained).features.to(device).eval()
 # number of layers (max 16)
 L = 16
 
-#DEPRECATED
+
+# DEPRECATED
 def make_image_stack(dat, n_im=None):
     """
     Input: dat - a 4D array (n_im, height, width, channels)
@@ -72,21 +73,20 @@ def make_image_stack(dat, n_im=None):
         else:
             im_all[i] = (np.swapaxes(dat[i][0], 0, 1) - m) / (M - m)
 
-    return im_all, N_list  
+    return im_all, N_list
 
 
 # MODEL SELECTION
 def _fit_model(
-        dat,
-        model_type="ref",
-        n_components=np.array([3]),
-        layer=None,
-        keep=False,
-        init=None,
-        init_eps=None,
-        prior_weights="ext3",
-        spatial_smoothing=True
-    ):
+    dat,
+    model_type="ref",
+    n_components=np.array([3]),
+    layer=None,
+    keep=False,
+    init=None,
+    init_eps=None,
+    prior_weights="ext3",
+):
     """
     Use to fit segmentation map to input image
     Parameters:
@@ -100,29 +100,29 @@ def _fit_model(
             'c': smoothed prior probability maps
         n_components: np.array
             number of components for segmentation map (each image will have the same number) as array
-        layer : int 
-            number of layers of VGG neural network to extract features from 
+        layer : int
+            number of layers of VGG neural network to extract features from
         keep : bool
             Set to True to keep the segmentation maps from every M-step of the EM algorithm
-        init : np.array 
-            Array of shape(image height, image width), this is the initial guess during segmentation fitting 
+        init : np.array
+            Array of shape(image height, image width), this is the initial guess during segmentation fitting
         init_eps: float
-            This is the amount of uncertainty injected with the initial guess, if None 0.0001 is used as default 
+            This is the amount of uncertainty injected with the initial guess, if None 0.0001 is used as default
         prior_weights: str
             determines the nature of the spatial smoothing
                 "ext3" (default): uses Dirichlet hyperparameter
-                IDEA: 
-                None: no spatial smoothing 
+                IDEA:
+                None: no spatial smoothing
 
     Output:
         array of n_im model results (singleton if n_im=1)
     """
-    #im_all = dat
+    # im_all = dat
     im = dat
-    #NOTE: list of K components to fit model for
+    # NOTE: list of K components to fit model for
     K_list = n_components
     ny, nx = im.shape[0:2]
-    #NOTE: output size at each convolutional layer of deepnet
+    # NOTE: output size at each convolutional layer of deepnet
     N_list = np.array(
         [
             (ny, nx),
@@ -144,22 +144,17 @@ def _fit_model(
         ]
     )
 
-    #NOTE: embedding dimensions at each convolutional layer of deepnet
+    # NOTE: embedding dimensions at each convolutional layer of deepnet
     d_list = np.array(
         [64, 64, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512, 512, 512, 512, 512]
     )
 
-    #NOTE:neighborhood size used for spatial smoothing
+    # NOTE:neighborhood size used for spatial smoothing
     neigh_size_list = 1.0 * np.array(
         [17, 17, 13, 13, 9, 9, 9, 9, 3, 3, 3, 3, 3, 3, 3, 3]
     )  # -1
-    #FIXME:
-    #IDEA setting neigh_size_list to one should eliminate spatial smoothing?
-    if spatial_smoothing:
-        neigh_size_list = neigh_size_list
-    else:
-        neigh_size_list = np.ones(neigh_size_list.shape)
-
+    # FIXME:
+    # IDEA setting neigh_size_list to one should eliminate spatial smoothing?
 
     # FIXME: for ppca = True, model b and c don't work
     ppca = False
@@ -168,7 +163,7 @@ def _fit_model(
 
     # models are defined in models_deep_seg.py
     # FIXME: ref model output is not the correct size?
-    # TODO: add init option to model a 
+    # TODO: add init option to model a
     if model_type == "ref":
         _fit = lambda x: model_ref(
             deepnet,
@@ -200,7 +195,7 @@ def _fit_model(
             light=light,
             n_pca=n_pca,
             verbose=False,
-            prior_weights=prior_weights
+            prior_weights=prior_weights,
         )
     elif model_type == "b":
         _fit = lambda x: model_b(
@@ -238,15 +233,15 @@ def _fit_model(
             n_pca=n_pca,
             verbose=False,
             keep=keep,
-            prior_weights=prior_weights
+            prior_weights=prior_weights,
         )
 
         if keep:
-            #proba_maps are the output weights from each iteration of the M-step
-            res_arr,proba_maps = _fit(im)
+            # proba_maps are the output weights from each iteration of the M-step
+            res_arr, proba_maps = _fit(im)
         else:
             res_arr = _fit(im)
-    #res_arr = np.asarray([_fit(im) for im in im_all])
+    # res_arr = np.asarray([_fit(im) for im in im_all])
     if not keep:
         res_arr = _fit(im)
 
@@ -255,20 +250,22 @@ def _fit_model(
 
     if keep:
         return res_arr, proba_maps
-    else: 
+    else:
         return res_arr
 
+
 def _gen_seg_map_from_weights(weights, size):
-    Ny,Nx = size
-    ny,nx = weights.shape
+    Ny, Nx = size
+    ny, nx = weights.shape
     smap = weights.argmax(1).reshape((size))
     if ny != Ny:
-        assert Ny//ny == Nx//nx
+        assert Ny // ny == Nx // nx
         multiplier = Ny // ny
         m = multiplier
-        smap = smap.repeat(m,0).repeat(m,1)
+        smap = smap.repeat(m, 0).repeat(m, 1)
 
     return smap
+
 
 def _gen_seg_map(res, N_list, standard_size=True):
     """
@@ -295,23 +292,24 @@ def _gen_seg_map(res, N_list, standard_size=True):
 
     return np.asarray(out)
 
-def _reshape_model_weights(SM,layers_of_interest=None):
+
+def _reshape_model_weights(SM, layers_of_interest=None):
     d = SM.model_res
     SM.layers_of_interest = layers_of_interest
     SM.model = list(SM.seg_maps.keys())[0]
     SM.n_components = list(SM.seg_maps[SM.model].keys())[0]
     SM.pmaps = {}
     for key in d.keys():
-        #self.seg_maps[key] = {}
+        # self.seg_maps[key] = {}
         SM.pmaps[key] = {}
         n_n_components = d[key].shape[1]
 
         # different values of i will have different n_components
         for i in range(n_n_components):
             # index 2 below is the index for the smm object
-            #layer 0
+            # layer 0
             smm = d[key][0, i, 2, 0]
-            #layer 16
+            # layer 16
             smm_last = d[key][-1, i, 2, 0]
             Ny, Nx = smm.im_shape
             _Ny, _Nx = smm_last.im_shape
@@ -327,9 +325,9 @@ def _reshape_model_weights(SM,layers_of_interest=None):
 
             for layer in layers:
                 ny, nx = layer.im_shape
-                pmap = layer.weights_.reshape((ny,nx,layer.n_components))
-                #reshape so that the component probabilities are the first dimension
-                pmap = np.moveaxis(pmap,-1,0)
+                pmap = layer.weights_.reshape((ny, nx, layer.n_components))
+                # reshape so that the component probabilities are the first dimension
+                pmap = np.moveaxis(pmap, -1, 0)
 
                 if ny != Ny:
                     assert Ny // ny == Nx // nx
@@ -341,8 +339,9 @@ def _reshape_model_weights(SM,layers_of_interest=None):
 
     return None
 
-def __get_global_entropy_at_layer(SM,layer,bounding_box=(256,256)):
-    if hasattr(SM, 'pmaps'):
+
+def __get_global_entropy_at_layer(SM, layer, bounding_box=(256, 256)):
+    if hasattr(SM, "pmaps"):
         pass
     else:
         _reshape_model_weights(SM)
@@ -352,32 +351,33 @@ def __get_global_entropy_at_layer(SM,layer,bounding_box=(256,256)):
     layer_idx = SM.layers_of_interest.index(layer)
 
     pmap = SM.pmaps[SM.model][SM.n_components][layer_idx]
-    pmap_resize = np.asarray(tb.crop(pmap,size=bounding_box))
+    pmap_resize = np.asarray(tb.crop(pmap, size=bounding_box))
     entropies = np.nansum(entropy(pmap_resize))
 
     return entropies
 
 
-def _get_global_entropy(SM,bounding_box=(256,256)):
-    if hasattr(SM, 'pmaps'):
+def _get_global_entropy(SM, bounding_box=(256, 256)):
+    if hasattr(SM, "pmaps"):
         pass
     else:
         _reshape_model_weights(SM)
-    
-    pmaps  = [pmap for pmap in SM.pmaps[SM.model][SM.n_components]]
 
-    pmaps_resize = [np.asarray(tb.crop(pmap,size=bounding_box)) for pmap in pmaps]
+    pmaps = [pmap for pmap in SM.pmaps[SM.model][SM.n_components]]
+
+    pmaps_resize = [np.asarray(tb.crop(pmap, size=bounding_box)) for pmap in pmaps]
 
     entropies = [np.sum(entropy(pmap)) for pmap in pmaps_resize]
 
-    d = {"global_entropy":entropies}
+    d = {"global_entropy": entropies}
 
     df = pd.DataFrame.from_dict(d)
 
-    df.insert(0,"layer",SM.layers_of_interest)
-    df.insert(0,"img_idx",[SM.iid_idx]*len(SM.layers_of_interest))
+    df.insert(0, "layer", SM.layers_of_interest)
+    df.insert(0, "img_idx", [SM.iid_idx] * len(SM.layers_of_interest))
 
     return df
+
 
 def main(model_type="a"):
     """
@@ -423,9 +423,9 @@ if __name__ == "__main__":
             pickle.dump(out, file)
 
 
-#apply crop to BSD segmentation for each human segmentation map,  256 x 256
-#apply crop to perceptual segmentation algos (skip model b) (only maps every 4th layer)
-#rsc similarity = Pearson coeff. 
+# apply crop to BSD segmentation for each human segmentation map,  256 x 256
+# apply crop to perceptual segmentation algos (skip model b) (only maps every 4th layer)
+# rsc similarity = Pearson coeff.
 
-#decide on upper limit of segments 
-#set minimum number of pixels per segment 
+# decide on upper limit of segments
+# set minimum number of pixels per segment

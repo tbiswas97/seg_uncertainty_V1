@@ -196,7 +196,6 @@ class SegmentationMap:
         init=None,
         init_eps=None,
         prior_weights="ext3",
-        spatial_smoothing=True
     ):
         """
         Runs perceptual segmentation model on self.im
@@ -222,14 +221,14 @@ class SegmentationMap:
             Determines whether to run the segmentation on a grayscale image or the original image
         keep : bool
             Set to True to keep the segmentation maps from every iteration of the EM algorithm
-        init : np.array 
-            Array of shape(image height, image width), this is the initial guess during segmentation fitting 
+        init : np.array
+            Array of shape(image height, image width), this is the initial guess during segmentation fitting
         init_eps: float
-            This is the amount of uncertainty injected with the initial guess, if None 0.0001 is used as default 
+            This is the amount of uncertainty injected with the initial guess, if None 0.0001 is used as default
         prior_weights: str
             determines the nature of the spatial smoothing
                 "ext3" (default): uses Dirichlet hyperparameter
-                None: no spatial smoothing 
+                None: no spatial smoothing
 
 
         Raises:
@@ -239,8 +238,7 @@ class SegmentationMap:
         self.seg_maps : dict
         """
         if keep:
-            assert model=="c", "Must use model \"c\" if keep is True"
-
+            assert model == "c", 'Must use model "c" if keep is True'
 
         if n_components is not None:
             pass
@@ -254,12 +252,14 @@ class SegmentationMap:
 
         self.model_components = n_components
 
-        if init is not None: 
-            assert type(init)==np.ndarray
-            assert model=="c", "Must use model \"c\" if init is not None"
-            if init_eps is not None: 
+        if init is not None:
+            assert type(init) == np.ndarray
+            assert model == "c", 'Must use model "c" if init is not None'
+            if init_eps is not None:
                 k = self.model_components[-1]
-                assert init_eps < (1/2)*(1/(k-1)), "Initialization epsilon value is too high for ground truth"
+                assert init_eps < (1 / 2) * (
+                    1 / (k - 1)
+                ), "Initialization epsilon value is too high for ground truth"
 
         if use_crop:
             if not self.cropped:
@@ -273,8 +273,8 @@ class SegmentationMap:
             model_im = self.make_grayscale(model_im)
             model_im = import_utils.norm_im(model_im)
 
-        #SEGMENTATION STEP: 
-        #calls files in seg/segment.py
+        # SEGMENTATION STEP:
+        # calls files in seg/segment.py
         if keep:
             # run model 'c' keep results at each EM iteration
             if "c" in model:
@@ -287,7 +287,6 @@ class SegmentationMap:
                     init=init,
                     init_eps=init_eps,
                     prior_weights=prior_weights,
-                    spatial_smoothing=spatial_smoothing
                 )
         else:
             # run model 'a'
@@ -297,7 +296,7 @@ class SegmentationMap:
                     model_type="a",
                     n_components=n_components,
                     layer=layer_stop,
-                    prior_weights=prior_weights
+                    prior_weights=prior_weights,
                 )
             # run model 'b'
             if "b" in model:
@@ -305,7 +304,7 @@ class SegmentationMap:
                     model_im,
                     model_type="b",
                     n_components=n_components,
-                    layer=layer_stop
+                    layer=layer_stop,
                 )
             # run model 'c'
             if "c" in model:
@@ -314,52 +313,52 @@ class SegmentationMap:
                     model_type="c",
                     n_components=n_components,
                     layer=layer_stop,
-                    prior_weights=prior_weights
+                    prior_weights=prior_weights,
                 )
         d = self.model_res
 
-        #CHANGED: used to build a nested dictionary in order to store data, 
+        # CHANGED: used to build a nested dictionary in order to store data,
         # now use seg.segment._reshape_model_weights() instead
         # gen nested dictionary for seg maps
-        #for key in d.keys():
-            #self.seg_maps[key] = {}
-            #n = d[key].shape[1]
+        # for key in d.keys():
+        # self.seg_maps[key] = {}
+        # n = d[key].shape[1]
 
-            ## different values of i will have different n_components
-            #for i in range(n):
-                ## index 2 below is the index for the smm object
-                #smm = d[key][0, i, 2, 0]
-                #smm_last = d[key][-1, i, 2, 0]
-                #Ny, Nx = smm.im_shape
-                #_Ny, _Nx = smm_last.im_shape
-                #self.seg_maps[key][smm.n_components] = []
-                #layers = d[key][
-                    #layer_start:layer_stop:layer_step, i, 2, 0
-                #]  # generates seg map from every 4th layer
+        ## different values of i will have different n_components
+        # for i in range(n):
+        ## index 2 below is the index for the smm object
+        # smm = d[key][0, i, 2, 0]
+        # smm_last = d[key][-1, i, 2, 0]
+        # Ny, Nx = smm.im_shape
+        # _Ny, _Nx = smm_last.im_shape
+        # self.seg_maps[key][smm.n_components] = []
+        # layers = d[key][
+        # layer_start:layer_stop:layer_step, i, 2, 0
+        # ]  # generates seg map from every 4th layer
 
-                #for layer in layers:
-                    #ny, nx = layer.im_shape
-                    #smap = layer.weights_.argmax(1).reshape((ny, nx))
+        # for layer in layers:
+        # ny, nx = layer.im_shape
+        # smap = layer.weights_.argmax(1).reshape((ny, nx))
 
-                    #if binning == True:
-                        #smap = tb._bin(smap, binsize=(ny // _Ny, nx // _Nx))
+        # if binning == True:
+        # smap = tb._bin(smap, binsize=(ny // _Ny, nx // _Nx))
 
-                        #assert Ny // ny == Nx // nx
+        # assert Ny // ny == Nx // nx
 
-                        #m = Ny // ny
-                        #smap = smap.repeat(m, 0).repeat(m, 1)
+        # m = Ny // ny
+        # smap = smap.repeat(m, 0).repeat(m, 1)
 
-                    #else:
-                        #if ny != Ny:
-                            #assert Ny // ny == Nx // nx
-                            #multiplier = Ny // ny
-                            #m = multiplier
-                            #smap = smap.repeat(m, 0).repeat(m, 1)
+        # else:
+        # if ny != Ny:
+        # assert Ny // ny == Nx // nx
+        # multiplier = Ny // ny
+        # m = multiplier
+        # smap = smap.repeat(m, 0).repeat(m, 1)
 
-                    #self.seg_maps[key][smm.n_components].append(smap)
+        # self.seg_maps[key][smm.n_components].append(smap)
 
-            #if use_crop:
-                #self.c_seg_maps = self.seg_maps
+        # if use_crop:
+        # self.c_seg_maps = self.seg_maps
 
         return None
 
