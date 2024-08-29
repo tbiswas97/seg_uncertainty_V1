@@ -28,7 +28,7 @@ Helper: get features from each layer and send them back as numpy arrays
 """
 
 
-#Get deep features from <model> as applied to <im_torch>
+# Get deep features from <model> as applied to <im_torch>
 def get_conv2d_features(model, im_torch):
     deep_features = []
     for i in range(1, len(model) + 1):
@@ -517,7 +517,7 @@ def model_b(
                 ny, nx = N_list[l]
 
                 # SMM
-                #NOTE: does the work of "ext3"
+                # NOTE: does the work of "ext3"
                 res[l, k, 2, 0].prior_means = prior_wm_smm
                 res[l, k, 2, 0].prior_norm = prior_w_smm.sum()
 
@@ -613,37 +613,36 @@ def model_c(
     verbose=True,
     keep=False,
     prior_weights="ext3",
+    spatial_smoothing=True,
 ):
-    #do not use KMeans initialization if initial (groundtruth) map is provided
-    if gt is not None: 
+    # do not use KMeans initialization if initial (groundtruth) map is provided
+    if gt is not None:
         kmeans = False
     model = copy.deepcopy(model)
     ny, nx = im.shape[:2]
-    #initial n_components for model
+    # initial n_components for model
     K = K_list.shape[0]
-    #reshape image so color channels are the last dimension
+    # reshape image so color channels are the last dimension
     im_torch = (
         torch.from_numpy(np.moveaxis(im, [0, 1, 2], [1, 2, 0])).float().unsqueeze(0)
     )
-    #CHANGED: #1 Try setting prior_weights to None to turn off spatial smoothing
-    #DEBUG: SMM.neighbors is not initialized in SMM.__init__
+    # CHANGED: #1 Try setting prior_weights to None to turn off spatial smoothing
+    # DEBUG: SMM.neighbors is not initialized in SMM.__init__
     ## error in line 824
-    prior_weights = prior_weights
+    prior_weights = "ext3"
 
-    
-    #Initializes the results for arrays used in FlexMM
+    # Initializes the results for arrays used in FlexMM
     Xpca = np.zeros(L, dtype=object)
     res = np.zeros((L, K, 3, 1), dtype=object)
     proba_maps = np.zeros((n_iter, L, K, 2), dtype=object)
 
-    #get deep features from VGG-19
+    # get deep features from VGG-19
     deep_features = get_conv2d_features(model, im_torch)
 
-
-    #Initializes the FlexMM object for each layer and each number of components
-    #for each layer...
+    # Initializes the FlexMM object for each layer and each number of components
+    # for each layer...
     for l in range(L):
-        #if not the first layer, mean pool using a 2x2 window
+        # if not the first layer, mean pool using a 2x2 window
         if N_list[l][0] != ny and l > 0:
             Xpca0 = pooling(Xpca0.reshape((ny, nx, Xpca0.shape[-1])), (2, 2)).reshape(
                 ny // 2 * nx // 2, Xpca0.shape[-1]
@@ -654,16 +653,16 @@ def model_c(
         else:
             prior_init = True
 
-        #initialize PCA Object from sklearn
+        # initialize PCA Object from sklearn
         res[l, 0, 0, 0] = PCA(n_components=0.95)
-        #set embedding dimension of features
+        # set embedding dimension of features
         d = d_list[l]
-        #set im size dimenstion of features
+        # set im size dimenstion of features
         ny, nx = N_list[l]
-        #reshape features to im size and embedding dimension at layer
+        # reshape features to im size and embedding dimension at layer
         X = deep_features[l].reshape(d, ny * nx).T
 
-        #fit PCA to deep_features from VGG-19
+        # fit PCA to deep_features from VGG-19
         Xpca[l] = res[l, 0, 0, 0].fit_transform(X)
 
         if l == 0:
@@ -673,29 +672,29 @@ def model_c(
             Xpca[l] = np.concatenate((Xpca[l], Xpca0), 1)
 
         k = 0
-        #for each n_components
+        # for each n_components
         for kk in K_list:
-            #create a ny*nx by k vector of 1s (prior SMM object means)
+            # create a ny*nx by k vector of 1s (prior SMM object means)
             prior_means_init = np.ones((ny * nx, kk)) / kk
-            #prior variance for the SMM object
+            # prior variance for the SMM object
             prior_var = 1.0
-            #NOTE: for default case params is "wmcd" (weights, menas, covariances, dofs)
+            # NOTE: for default case params is "wmcd" (weights, menas, covariances, dofs)
             if gmm:
                 res[l, k, 1, 0] = GMM(
-                        n_components=kk,
-                        prior_weights=prior_weights,
-                        n_init=1,
-                        prior_means=prior_means_init,
-                        prior_var=prior_var,
-                        prior_init=prior_init,
-                        im_shape=(ny, nx),
-                        neigh_size=neigh_size_list[l],
-                        tol=1e-3,
-                        n_iter=200,
-                        params="w" + params + "mc",
-                        ppca=ppca,
-                        n_pca=n_pca,
-                    )
+                    n_components=kk,
+                    prior_weights=prior_weights,
+                    n_init=1,
+                    prior_means=prior_means_init,
+                    prior_var=prior_var,
+                    prior_init=prior_init,
+                    im_shape=(ny, nx),
+                    neigh_size=neigh_size_list[l],
+                    tol=1e-3,
+                    n_iter=200,
+                    params="w" + params + "mc",
+                    ppca=ppca,
+                    n_pca=n_pca,
+                )
             res[l, k, 2, 0] = SMM(
                 n_components=kk,
                 prior_weights=prior_weights,
@@ -714,14 +713,14 @@ def model_c(
 
             k += 1
 
-    #NOTE: init
+    # NOTE: init
     if verbose:
         print("Initialization ...")
     for k in range(K):
         kk = K_list[k]
 
         for l in range(L):
-            #NOTE: Mixture models are fit to either pooled or unpooled data depending on the layer
+            # NOTE: Mixture models are fit to either pooled or unpooled data depending on the layer
             if N_list[l][0] != ny:
                 pool = True
             else:
@@ -730,7 +729,7 @@ def model_c(
             ny, nx = N_list[l]
             if l == 0:
                 # SMM
-                #NOTE: initialize the mixture model at the current layer
+                # NOTE: initialize the mixture model at the current layer
                 res[l, k, 2, 0]._initialization_step(
                     Xpca[l],
                     gt=gt,
@@ -738,7 +737,7 @@ def model_c(
                     n_components_best=n_components_best,
                     use_kmeans=kmeans,
                 )
-                #NOTE: calculates the responsibilities after the initialization step
+                # NOTE: calculates the responsibilities after the initialization step
                 prior_param_smm = res[l, k, 2, 0]._posterior_proba(Xpca[l])  # Here
                 # GMM
                 if gmm:
@@ -787,25 +786,25 @@ def model_c(
         prior_wm_gmm = np.zeros(L, dtype=object)
         tau_gmm = np.zeros(L, dtype=object)
 
-    #NOTE: likelihood array initialization
+    # NOTE: likelihood array initialization
     lkl_smm = np.zeros((K, L, n_iter))
-    #NOTE: prior means array initialization
+    # NOTE: prior means array initialization
     prior_means_smm = np.zeros((K, L), dtype=object)
-    #NOTE: prior var array initialization
+    # NOTE: prior var array initialization
     prior_var_smm = np.zeros((K, L))
-    #NOTE:?
+    # NOTE:?
     prior_wm_smm = np.zeros(L, dtype=object)
-    #NOTE: prior tau array initilization 
-    #NOTE tau = E(class|observation)
+    # NOTE: prior tau array initilization
+    # NOTE tau = E(class|observation)
     tau_smm = np.zeros(L, dtype=object)
-    #NOTE: initialize prior degrees of freedom
+    # NOTE: initialize prior degrees of freedom
     nu = np.zeros(L, dtype=object)
-#NOTE EXPECTATION-MAXIMIZATION STEPS:
+    # NOTE EXPECTATION-MAXIMIZATION STEPS:
     for k in range(K):
         kk = K_list[k]
 
         # SMM
-        #NOTE: calculate responsibilities from the initial guess for the first layer
+        # NOTE: calculate responsibilities from the initial guess for the first layer
         prior_param_smm = res[0, k, 2, 0]._posterior_proba(Xpca[0])
         # GMM
         if gmm:
@@ -821,16 +820,16 @@ def model_c(
             for l in range(L):
                 ny, nx = N_list[l]
                 # SMM
-                #NOTE: tau_smm are responsibilities of each mixture component
-                #NOTE: nu are the gammaweights (GSM mixer) for a particular mixture component
+                # NOTE: tau_smm are responsibilities of each mixture component
+                # NOTE: nu are the gammaweights (GSM mixer) for a particular mixture component
                 lkls_smm, tau_smm[l], nu[l] = res[l, k, 2, 0]._expectation_step(Xpca[l])
-                #NOTE: calculate the log-likelihood from the likelihood
+                # NOTE: calculate the log-likelihood from the likelihood
                 lkl_smm[k, l, i] = np.log(lkls_smm).mean()
-                #NOTE: convolves responsibilites at every point with a 2D gaussian  
+                # NOTE: convolves responsibilites at every point with a 2D gaussian
                 # each point gets the weighted average of the responibilities of each component
-                #DEBUG: self.neighbors does not exist if prior_weights is None
-                #CHANGED: try putting this in a conditional
-                if prior_weights is not None:
+                # DEBUG: self.neighbors does not exist if prior_weights is None
+                # CHANGED: #1: try putting this in a conditional
+                if spatial_smoothing:
                     prior_means_smm[k, l] = sp.ndimage.convolve(
                         tau_smm[l].reshape(ny, nx, kk),
                         res[l, k, 2, 0].neighbors,
@@ -843,10 +842,14 @@ def model_c(
                         mode="nearest",
                     ).reshape(ny * nx, kk)
                 else:
-                    #CHANGED: assign prior_means and prior_var using responsibilities Tau
-                    prior_means_smm[k,l] = tau_smm[l].reshape(ny, nx, kk)
-                    prior_var = (tau_smm[l]**2).reshape(ny,nx,kk)
-                # normalize the variance?
+                    # CHANGED: #2: assign prior_means and prior_var using responsibilities Tau
+                    # prior_means_smm[k,l] = tau_smm[l].reshape(ny, nx, kk)
+                    # prior_var = (tau_smm[l]**2).reshape(ny,nx,kk)
+                    # CHANGED: #3: reshape to ny*nx
+                    # CHANGED: #7: divide Tau by N
+                    prior_means_smm[k, l] = tau_smm[l].reshape(ny * nx, kk) / (ny * nx)
+                    prior_var = (tau_smm[l] ** 2).reshape(ny * nx, kk) / (ny * nx)
+
                 prior_var -= prior_means_smm[k, l] ** 2
                 prior_var_smm[k, l] = prior_var.mean()
 
@@ -869,7 +872,7 @@ def model_c(
 
                 # component selection (maybe add weights)
                 tau_sum_smm += tau_smm[l].sum(0)
-                #NOTE: calculates the sum of all responsibilities
+                # NOTE: calculates the sum of all responsibilities
                 if gmm:
                     tau_sum_gmm += tau_gmm[l].sum(0)
                 n_sum += ny * nx
@@ -881,10 +884,10 @@ def model_c(
                 var_gmm = np.pad(prior_var_gmm[k], 1, mode="edge")
 
             n_list = np.pad(N_list, ((1, 1), (0, 0)), mode="edge")
-            #NOTE: normalization across layers
+            # NOTE: normalization across layers
             for l in range(1, L + 1):
                 ny, nx = n_list[l]
-                #NOTE: take the product of the variance of responsibilities across layers
+                # NOTE: take the product of the variance of responsibilities across layers
                 var_smm_prod = var_smm[l - 1 : l + 2]
                 var_smm_prod = np.prod(
                     var_smm_prod[np.newaxis] * (1 - np.eye(3)) + np.eye(3), axis=1
@@ -995,7 +998,7 @@ def model_c(
                 # res[l,k,2,0].taus = np.float32(res[l,k,2,0].taus)
 
     if keep:
-        #proba_maps are the output weights from each iteration of the M-step
+        # proba_maps are the output weights from each iteration of the M-step
         return res, proba_maps  # , lkl_smm, lkl_gmm
     else:
         return res

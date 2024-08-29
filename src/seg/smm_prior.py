@@ -154,6 +154,7 @@ class SMM(sklearn.base.BaseEstimator):
         self.covariance_type = covariance_type
         # FIXME: prior_weights = "ext3" working but not prior_weights=None
         self.prior_weights = prior_weights
+
         # spatial smoothing case
         if self.prior_weights != None:
             self.prior_means = prior_means
@@ -167,28 +168,17 @@ class SMM(sklearn.base.BaseEstimator):
             ]
             ##NOTE: sets up a 2d Gaussian based on neigh_size
             ##DEBUG: failure to initialize self.neighbors leads to an error in convolution
-            #self.neighbors = tb.gauss2d(X, Y, neigh_size / 4.0)
+            # self.neighbors = tb.gauss2d(X, Y, neigh_size / 4.0)
             ##NOTE: normalizes 2d Gaussian kernel
             self.neighbors = tb.gauss2d(X, Y, neigh_size / 4.0)
             self.neighbors /= self.neighbors.sum()
             self.neighbors = self.neighbors[..., np.newaxis]
             self.im_shape = im_shape
+        else:
+            # CHANGED: #6 added initialization for self.prior_init
+            self.prior_init = prior_init
         # not the spatial smoothing case?
-        #DEBUG: if prior_weights is set to None, none of the above parameters are defined
-        #else:
-            ##IDEA: initialize everything the same way 
-            #self.neigh_size = neigh_size
-            #Y, X = np.mgrid[
-                #-(neigh_size - 1) // 2 : (neigh_size - 1) // 2 + 1,
-                #-(neigh_size - 1) // 2 : (neigh_size - 1) // 2 + 1,
-            #]
-            ##NOTE: sets up a 2d Gaussian based on neigh_size
-            ##DEBUG: failure to initialize self.neighbors leads to an error in convolution
-            #self.neighbors = tb.gauss2d(X, Y, neigh_size / 4.0)
-            ##NOTE: normalizes 2d Gaussian kernel
-            #self.neighbors /= self.neighbors.sum()
-            #self.neighbors = self.neighbors[..., np.newaxis]
-            #self.im_shape = im_shape
+        # DEBUG: if prior_weights is set to None, none of the above parameters are defined
         self.random_state = random_state
         self.tol = tol
         self.min_covar = min_covar
@@ -237,7 +227,7 @@ class SMM(sklearn.base.BaseEstimator):
                 + "shape of X is not compatible with self."
             )
 
-        #NOTE: Initialisation of reponsibilities and weight of each point for
+        # NOTE: Initialisation of reponsibilities and weight of each point for
         # the Gamma distribution
         n_samples, n_dim = X.shape
         responsibilities = np.ndarray(
@@ -248,10 +238,10 @@ class SMM(sklearn.base.BaseEstimator):
             shape=(X.shape[0], self.n_components), dtype=np.float64
         )
 
-        #NOTE: Calculate the probability of each point belonging to each
+        # NOTE: Calculate the probability of each point belonging to each
         # t-Student distribution of the mixture
-        #NOTE: the formula for the PDF is in McLachlan & Peel 
-        #NOTE: the q parameter optimizes the calculation of the covariance matrix?
+        # NOTE: the formula for the PDF is in McLachlan & Peel
+        # NOTE: the q parameter optimizes the calculation of the covariance matrix?
         pr_before_weighting = self._multivariate_t_student_density(
             X,
             self.means_,
@@ -268,14 +258,14 @@ class SMM(sklearn.base.BaseEstimator):
         likelihoods = pr.sum(axis=1)
 
         # Update responsibilities
-        #NOTE: the likelihood of an observation being from component "i" 
+        # NOTE: the likelihood of an observation being from component "i"
         # is the likelihood at one weight over the likelihood over the mixture
         responsibilities = pr / (likelihoods.reshape(likelihoods.shape[0], 1))  # \
         # + 10 * SMM._EPS)
         responsibilities = np.clip(responsibilities, 0, 1)
 
         # Update the Gamma weight for each observation
-        #NOTE: the Gamma weight is E(mixer | observation)
+        # NOTE: the Gamma weight is E(mixer | observation)
         mahalanobis_distance_mix_func = SMM._mahalanobis_funcs[self.covariance_type]
         vp = self.degrees_ + n_dim
         maha_dist = mahalanobis_distance_mix_func(
@@ -283,7 +273,7 @@ class SMM(sklearn.base.BaseEstimator):
         )
 
         gammaweights_ = np.zeros_like(responsibilities)
-        #NOTE: by default, self.q_ is an array of ones?
+        # NOTE: by default, self.q_ is an array of ones?
         gammaweights_[:, self.q_] = vp[self.q_] / (
             self.degrees_[self.q_] + maha_dist[:, self.q_]
         )
@@ -310,8 +300,11 @@ class SMM(sklearn.base.BaseEstimator):
         # Update weights
         if "w" in self.params:
             if self.prior_weights == None:
-                #DEBUG: this is the correct update rule for no spatial smoothing
-                self.weights_ = z_sum / n_samples
+                # DEBUG: this is the correct update rule for no spatial smoothing
+                # CHANGED: #5 change this case to match the "ext3" case
+                # otherwise the prior_mean and prior_var attributes are not used
+                # self.weights_ = z_sum / n_samples
+                self.weights_ = self.prior_means / self.prior_norm
             elif self.prior_weights == "ext3":
                 # outside this algo
                 self.weights_ = self.prior_means / self.prior_norm
@@ -383,13 +376,15 @@ class SMM(sklearn.base.BaseEstimator):
                 # print(self.covars_.reshape(self.n_components,n_dim**2))
                 # if np.sum(self.be>self.n_components//2)>0:
                 #    self.be = 0*self.be
-                self.q_weights_ = z_sum / (z_sum + n_samples / self.n_components)
+                # self.q_weights_ = z_sum / (z_sum + n_samples / self.n_components)
                 # self.be = self.be/3.0
                 # print(self.be)
 
                 # self.q_weights_ = z_sum/(z_sum+
                 #                    self.be*n_samples/(self.q_.sum()))
                 # print(self.q_weights_)
+                # CHANGED: #5 match between None and "ext3" case
+                self.q_weights_ = self.q_weights_
                 self.q_ = self.q_weights_ > 0.5
                 # self.q_ = self.be<4.0
                 self.weights_ *= self.q_
@@ -471,14 +466,14 @@ class SMM(sklearn.base.BaseEstimator):
                     init="k-means++",
                     random_state=self.random_state,
                 )
-                #NOTE: assign mean of t- components as mean of KMeans cluster centers
+                # NOTE: assign mean of t- components as mean of KMeans cluster centers
                 self.means_ = kmeans.fit(X).cluster_centers_
             elif gt is not None:
                 cluster_centers, _ = tb.gt_pca_cluster_centers(X, gt)
                 self.means_ = cluster_centers
                 assert self.means_.shape[0] == self.n_components
             else:
-                #NOTE: if no k-means or groundtruth initialization, initialize means to 0
+                # NOTE: if no k-means or groundtruth initialization, initialize means to 0
                 self.means_ = np.zeros((self.n_components, X.shape[1]))
 
         if "w" in self.init_params or not hasattr(self, "weights_"):
@@ -529,7 +524,7 @@ class SMM(sklearn.base.BaseEstimator):
                     self.weights_ /= self.weights_.sum(axis=1, keepdims=True)
                     # print(self.prior_means/self.prior_means.sum(axis=1, keepdims=True).shape)
                 else:
-                    #prior_means is initially set to np.ones 
+                    # prior_means is initially set to np.ones
                     self.weights_ = self.prior_means
                     self.weights_ /= self.weights_.sum(axis=1, keepdims=True)
             elif self.prior_weights == "loc":
@@ -556,12 +551,17 @@ class SMM(sklearn.base.BaseEstimator):
             # print(mat)
 
         if "d" in self.init_params or not hasattr(self, "degrees_"):
-            #initial guess is 2 degrees of freedom
+            # initial guess is 2 degrees of freedom
             self.degrees_ = np.tile(2.0, self.n_components)
             # 0.5+3*np.random.rand(self.n_components)
             #
 
-        #prior_init is False for the first layer, true for following layers
+        # prior_init is False for the first layer, true for following layers
+        # CHANGED: #5 create a None case here
+        if self.prior_weights is None and self.prior_init:
+            self._maximisation_step(
+                X, self.prior_means, np.ones((X.shape[0], self.n_components))
+            )
         if self.prior_weights in {"ext", "loc"} and self.prior_init:
             self._maximisation_step(
                 X, self.prior_means, np.ones((X.shape[0], self.n_components))
@@ -748,6 +748,7 @@ class SMM(sklearn.base.BaseEstimator):
 
         # Calculate the probability of each point belonging to each
         # t-Student distribution of the mixture
+        # DEBUG: should this add up to 1? it doesn't in the prior_weights == None case, check the prior_weighst=="ext3" case
         pr_before_weighting = self._multivariate_t_student_density(
             X,
             self.means_,
@@ -1275,7 +1276,7 @@ class SMM(sklearn.base.BaseEstimator):
         assert covars.shape[1] == means.shape[1]
         assert covars.shape[1] == n_dim
 
-        #NOTE: Calculate inverse and determinant of the covariances
+        # NOTE: Calculate inverse and determinant of the covariances
         #         inv_covars = 1.0 / covars
         log_det_covars = np.sum(np.log(covars), axis=1)
 

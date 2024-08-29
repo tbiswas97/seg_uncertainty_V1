@@ -85,7 +85,7 @@ def _fit_model(
     keep=False,
     init=None,
     init_eps=None,
-    prior_weights="ext3",
+    spatial_smoothing=True,
 ):
     """
     Use to fit segmentation map to input image
@@ -195,7 +195,6 @@ def _fit_model(
             light=light,
             n_pca=n_pca,
             verbose=False,
-            prior_weights=prior_weights,
         )
     elif model_type == "b":
         _fit = lambda x: model_b(
@@ -233,7 +232,7 @@ def _fit_model(
             n_pca=n_pca,
             verbose=False,
             keep=keep,
-            prior_weights=prior_weights,
+            spatial_smoothing=spatial_smoothing,
         )
 
         if keep:
