@@ -829,7 +829,7 @@ def model_c(
                 # each point gets the weighted average of the responibilities of each component
                 # DEBUG: self.neighbors does not exist if prior_weights is None
                 # CHANGED: #1: try putting this in a conditional
-                if spatial_smoothing:
+                if spatial_smoothing == 1:
                     prior_means_smm[k, l] = sp.ndimage.convolve(
                         tau_smm[l].reshape(ny, nx, kk),
                         res[l, k, 2, 0].neighbors,
@@ -841,14 +841,34 @@ def model_c(
                         res[l, k, 2, 0].neighbors,
                         mode="nearest",
                     ).reshape(ny * nx, kk)
-                else:
+                elif spatial_smoothing == 0:
                     # CHANGED: #2: assign prior_means and prior_var using responsibilities Tau
                     # prior_means_smm[k,l] = tau_smm[l].reshape(ny, nx, kk)
                     # prior_var = (tau_smm[l]**2).reshape(ny,nx,kk)
                     # CHANGED: #3: reshape to ny*nx
                     # CHANGED: #7: divide Tau by N
-                    prior_means_smm[k, l] = tau_smm[l].reshape(ny * nx, kk) / (ny * nx)
-                    prior_var = (tau_smm[l] ** 2).reshape(ny * nx, kk) / (ny * nx)
+                    # output appears consistent on inspection but final probabilities do not sum to 1
+                    # CHANGED: #8: prior_means_smm[k,l] should sum to 1
+                    # prior_means_smm[k, l] = tau_smm[l].reshape(ny * nx, kk) / (ny * nx)
+                    # prior_var = (tau_smm[l] ** 2).reshape(ny * nx, kk) / (ny * nx)
+
+                    prior_means_smm[k, l] = (
+                        np.mean(tau_smm[l], axis=0)
+                        .T[np.newaxis, ...]
+                        .repeat(ny * nx, axis=0)
+                    ).reshape(ny * nx, kk)
+                    prior_var = (
+                        np.mean((tau_smm[l] ** 2), axis=0)
+                        .T[np.newaxis, ...]
+                        .repeat(ny * nx, axis=0)
+                    ).reshape(ny * nx, kk)
+                elif spatial_smoothing == -1:
+                    prior_means_smm[k, l] = tau_smm[l].reshape(ny * nx, kk)
+                    prior_var = (
+                        np.mean((tau_smm[l] ** 2), axis=0)
+                        .T[np.newaxis, ...]
+                        .repeat(ny * nx, axis=0)
+                    ).reshape(ny * nx, kk)
 
                 prior_var -= prior_means_smm[k, l] ** 2
                 prior_var_smm[k, l] = prior_var.mean()
@@ -943,8 +963,18 @@ def model_c(
                 )
                 res[l, k, 2, 0]._maximisation_step(Xpca[l], tau_smm[l], nu[l])
 
-                proba_maps[i, l, k, 1] = res[l, k, 2, 0].weights_
-
+                if spatial_smoothing == 1:
+                    proba_maps[i, l, k, 1] = res[l, k, 2, 0].weights_
+                else:  # use the posterior probaiblities for the spatial_smoothing==0 case because
+                    # prior probabilty is scalar
+                    regular_mixture_prior = res[l, k, 2, 0].weights_
+                    _regular_mixture_posterior = res[l, k, 2, 0]._posterior_proba(
+                        Xpca[l]
+                    )
+                    assert (
+                        regular_mixture_prior.shape == _regular_mixture_posterior.shape
+                    )
+                    proba_maps[i, l, k, 1] = _regular_mixture_posterior
                 # GMM
                 if gmm:
                     res[l, k, 1, 0].prior_means = prior_wm_gmm[l]
@@ -990,7 +1020,7 @@ def model_c(
                 # del(res[l,k,2,0].Y)
                 # del(res[l,k,2,0].B_)
                 # del(res[l,k,2,0].S)
-                res[l, k, 2, 0].weights_ = np.float32(res[l, k, 2, 0].weights_)
+                res[l, k, 2, 0].weights_ = np.float16(res[l, k, 2, 0].weights_)
                 res[l, k, 2, 0].means_ = np.float16(res[l, k, 2, 0].means_)
                 res[l, k, 2, 0].covars_ = np.float32(res[l, k, 2, 0].covars_)
                 res[l, k, 2, 0].degrees_ = np.float32(res[l, k, 2, 0].degrees_)
