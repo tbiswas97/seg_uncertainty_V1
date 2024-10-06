@@ -236,8 +236,8 @@ def _fit_model(
         )
 
         if keep:
-            # proba_maps are the output weights from each iteration of the M-step
-            res_arr, proba_maps = _fit(im)
+            # res_iter are the output weights from each iteration of the M-step
+            res_arr, res_iter = _fit(im)
         else:
             res_arr = _fit(im)
     # res_arr = np.asarray([_fit(im) for im in im_all])
@@ -248,7 +248,7 @@ def _fit_model(
         res_arr = res_arr[0]
 
     if keep:
-        return res_arr, proba_maps
+        return res_arr, res_iter
     else:
         return res_arr
 
