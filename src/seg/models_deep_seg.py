@@ -669,6 +669,7 @@ def model_c(
             # Xpca0 is the PCA result from the first layer of features
             Xpca0 = np.copy(Xpca[0])
         else:
+            # RGB features (Xpca0) in addition to features of every layer
             Xpca[l] = np.concatenate((Xpca[l], Xpca0), 1)
 
         k = 0
@@ -964,7 +965,8 @@ def model_c(
                 res[l, k, 2, 0]._maximisation_step(Xpca[l], tau_smm[l], nu[l])
 
                 if spatial_smoothing == 1:
-                    proba_maps[i, l, k, 1] = res[l, k, 2, 0].weights_
+                    # TEMP CHANGE
+                    proba_maps[i, l, k, 1] = res[l, k, 2, 0]
                 else:  # use the posterior probaiblities for the spatial_smoothing==0 case because
                     # prior probabilty is scalar
                     regular_mixture_prior = res[l, k, 2, 0].weights_
