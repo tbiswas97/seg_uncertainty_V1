@@ -634,7 +634,7 @@ def model_c(
     # Initializes the results for arrays used in FlexMM
     Xpca = np.zeros(L, dtype=object)
     res = np.zeros((L, K, 3, 1), dtype=object)
-    proba_maps = np.zeros((n_iter, L, K, 2), dtype=object)
+    proba_maps = np.zeros((n_iter, L, K, 4), dtype=object)
 
     # get deep features from VGG-19
     deep_features = get_conv2d_features(model, im_torch)
@@ -966,7 +966,11 @@ def model_c(
 
                 if spatial_smoothing == 1:
                     # TEMP CHANGE
-                    proba_maps[i, l, k, 1] = res[l, k, 2, 0]
+                    proba_maps[i, l, k, 0] = res[l, k, 2, 0].weights_
+                    proba_maps[i, l, k, 1] = res[l, k, 2, 0].means_
+                    proba_maps[i, l, k, 2] = res[l, k, 2, 0].covars_
+                    proba_maps[i, l, k, 3] = res[l, k, 2, 0].degrees_
+
                 else:  # use the posterior probaiblities for the spatial_smoothing==0 case because
                     # prior probabilty is scalar
                     regular_mixture_prior = res[l, k, 2, 0].weights_
@@ -985,7 +989,6 @@ def model_c(
                         tau_sum_gmm + n_sum / (8 * kk)
                     )
                     res[l, k, 1, 0]._maximisation_step(Xpca[l], tau_gmm[l])
-                    proba_maps[i, l, k, 0] = res[l, k, 1, 0].weights_
 
             if i > 1:
                 lkl_diff = np.abs(lkl_smm[k, :, i].mean() - lkl_smm[k, :, i - 1].mean())
