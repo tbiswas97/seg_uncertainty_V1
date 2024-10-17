@@ -28,7 +28,6 @@ device = torch.device("cpu")
 # weights = "IMAGENET1K_V1"
 pretrained = True
 # select VGG_19 from torchvision
-deepnet = models.vgg19(pretrained=pretrained).features.to(device).eval()
 # number of layers (max 16)
 L = 16
 
@@ -86,6 +85,7 @@ def _fit_model(
     init=None,
     init_eps=None,
     spatial_smoothing=True,
+    deepnet="vgg19",
 ):
     """
     Use to fit segmentation map to input image
@@ -123,39 +123,62 @@ def _fit_model(
     K_list = n_components
     ny, nx = im.shape[0:2]
     # NOTE: output size at each convolutional layer of deepnet
-    N_list = np.array(
-        [
-            (ny, nx),
-            (ny, nx),
-            (ny // 2, nx // 2),
-            (ny // 2, nx // 2),
-            (ny // 4, nx // 4),
-            (ny // 4, nx // 4),
-            (ny // 4, nx // 4),
-            (ny // 4, nx // 4),
-            (ny // 8, nx // 8),
-            (ny // 8, nx // 8),
-            (ny // 8, nx // 8),
-            (ny // 8, nx // 8),
-            (ny // 16, nx // 16),
-            (ny // 16, nx // 16),
-            (ny // 16, nx // 16),
-            (ny // 16, nx // 16),
-        ]
-    )
+    if deepnet == "vgg19":
+        N_list = np.array(
+            [
+                (ny, nx),
+                (ny, nx),
+                (ny // 2, nx // 2),
+                (ny // 2, nx // 2),
+                (ny // 4, nx // 4),
+                (ny // 4, nx // 4),
+                (ny // 4, nx // 4),
+                (ny // 4, nx // 4),
+                (ny // 8, nx // 8),
+                (ny // 8, nx // 8),
+                (ny // 8, nx // 8),
+                (ny // 8, nx // 8),
+                (ny // 16, nx // 16),
+                (ny // 16, nx // 16),
+                (ny // 16, nx // 16),
+                (ny // 16, nx // 16),
+            ]
+        )
 
-    # NOTE: embedding dimensions at each convolutional layer of deepnet
-    d_list = np.array(
-        [64, 64, 128, 128, 256, 256, 256, 256, 512, 512, 512, 512, 512, 512, 512, 512]
-    )
+        # NOTE: embedding dimensions at each convolutional layer of deepnet
+        d_list = np.array(
+            [
+                64,
+                64,
+                128,
+                128,
+                256,
+                256,
+                256,
+                256,
+                512,
+                512,
+                512,
+                512,
+                512,
+                512,
+                512,
+                512,
+            ]
+        )
+        deepnet = models.vgg19(pretrained=pretrained).features.to(device).eval()
+    elif deepnet == "AlexNet":
+        deepnet = models.alexnet(pretrained=True).features.to("cpu").eval()
+        assert ny, nx == 227
+        N_list = np.array([(int(((ny - 11) / 4)) + 2, int(((nx - 11) / 4) + 2))])
+        d_list = [64]
+        ny, nx = N_list[0]
+        d = d_list[0]
 
     # NOTE:neighborhood size used for spatial smoothing
     neigh_size_list = 1.0 * np.array(
         [17, 17, 13, 13, 9, 9, 9, 9, 3, 3, 3, 3, 3, 3, 3, 3]
-    )  # -1
-    # FIXME:
-    # IDEA setting neigh_size_list to one should eliminate spatial smoothing?
-
+    )
     # FIXME: for ppca = True, model b and c don't work
     ppca = False
     light = True
