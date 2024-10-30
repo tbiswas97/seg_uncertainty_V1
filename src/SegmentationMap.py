@@ -9,6 +9,7 @@ import seg.segment as seg
 from itertools import combinations
 from Session import Session as Sess
 from Session import DEFAULT_PROBES
+import torchvision.models as models
 
 
 class SegmentationMap:
@@ -196,6 +197,7 @@ class SegmentationMap:
         init=None,
         init_eps=None,
         spatial_smoothing=True,
+        deepnet="vgg19",
     ):
         """
         Runs perceptual segmentation model on self.im
@@ -229,6 +231,8 @@ class SegmentationMap:
             determines the nature of the spatial smoothing
                 "ext3" (default): uses Dirichlet hyperparameter
                 None: no spatial smoothing
+        deepnet : str
+            determines which deep network is used for feature extraction, default is VGG19
 
 
         Raises:
@@ -237,6 +241,9 @@ class SegmentationMap:
             Model object defined in models_deep_seg.py
         self.seg_maps : dict
         """
+        if deepnet is not None:
+            if deepnet == "AlexNet":
+                layer_stop = 1
         if keep:
             assert model == "c", 'Must use model "c" if keep is True'
 
@@ -275,6 +282,7 @@ class SegmentationMap:
 
         # SEGMENTATION STEP:
         # calls files in seg/segment.py
+        # TODO: put new arguments into model a and model c | keep=False
         if keep:
             # run model 'c' keep results at each EM iteration
             if "c" in model:
@@ -287,6 +295,7 @@ class SegmentationMap:
                     init=init,
                     init_eps=init_eps,
                     spatial_smoothing=spatial_smoothing,
+                    deepnet=deepnet,
                 )
         else:
             # run model 'a'
@@ -296,6 +305,7 @@ class SegmentationMap:
                     model_type="a",
                     n_components=n_components,
                     layer=layer_stop,
+                    deepnet=deepnet,
                 )
             # run model 'b'
             if "b" in model:
@@ -304,6 +314,7 @@ class SegmentationMap:
                     model_type="b",
                     n_components=n_components,
                     layer=layer_stop,
+                    deepnet=deepnet,
                 )
             # run model 'c'
             if "c" in model:
@@ -312,6 +323,7 @@ class SegmentationMap:
                     model_type="c",
                     n_components=n_components,
                     layer=layer_stop,
+                    deepnet=deepnet,
                 )
         d = self.model_res
 
