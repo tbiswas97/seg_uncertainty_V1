@@ -843,6 +843,7 @@ def model_c(
                         mode="nearest",
                     ).reshape(ny * nx, kk)
                 elif spatial_smoothing == 0:
+                    #GAUSSIAN KERNEL IS INF
                     # CHANGED: #2: assign prior_means and prior_var using responsibilities Tau
                     # prior_means_smm[k,l] = tau_smm[l].reshape(ny, nx, kk)
                     # prior_var = (tau_smm[l]**2).reshape(ny,nx,kk)
@@ -864,6 +865,7 @@ def model_c(
                         .repeat(ny * nx, axis=0)
                     ).reshape(ny * nx, kk)
                 elif spatial_smoothing == -1:
+                    #GAUSSIAN KERNEL IS EPS
                     prior_means_smm[k, l] = tau_smm[l].reshape(ny * nx, kk)
                     prior_var = (
                         np.mean((tau_smm[l] ** 2), axis=0)
