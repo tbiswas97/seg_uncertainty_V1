@@ -382,7 +382,7 @@ class Session:
         analysis="pairwise",
         calculate_pmi=False,
     ):
-        #TODO: all_trials = False is very slow and should be deprecated
+        # TODO: all_trials = False is very slow and should be deprecated
         if analysis == "pairwise":
             all_possible_pairs = list(
                 permutations(list(range(self.exp_info["n_neurons"])), 2)
@@ -460,7 +460,7 @@ class Session:
                 to_concat.append(df)
 
             out = pd.concat(to_concat, ignore_index=True)
-            self.df=out
+            self.df = out
 
             return out
 
@@ -606,10 +606,14 @@ class Session:
             ]
 
             if calculate_pmi:
-                d["pmi"] = [tb.get_poisson_modality_index(self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["small"], ...][
-                        neuron, im, :
-                    ]) for neuron in responsive_neurons]
-
+                d["pmi"] = [
+                    tb.get_poisson_modality_index(
+                        self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["small"], ...][
+                            neuron, im, :
+                        ]
+                    )
+                    for neuron in responsive_neurons
+                ]
 
             # FOR LARGE PRESENTATION
             dd = {}
@@ -648,9 +652,14 @@ class Session:
                 for neuron in responsive_neurons
             ]
             if calculate_pmi:
-                dd["pmi"] = [tb.get_poisson_modality_index(self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["large"], ...][
-                        neuron, im, :
-                    ]) for neuron in responsive_neurons]
+                dd["pmi"] = [
+                    tb.get_poisson_modality_index(
+                        self.resp_train.sum(axis=-1)[:, SMALL_LARGE_IDXS["large"], ...][
+                            neuron, im, :
+                        ]
+                    )
+                    for neuron in responsive_neurons
+                ]
 
             if self._neuron_exclusion:
                 d["neuron_pos"] = [
