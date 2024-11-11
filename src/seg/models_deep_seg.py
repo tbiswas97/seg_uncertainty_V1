@@ -634,7 +634,7 @@ def model_c(
     # Initializes the results for arrays used in FlexMM
     Xpca = np.zeros(L, dtype=object)
     res = np.zeros((L, K, 3, 1), dtype=object)
-    proba_maps = np.zeros((n_iter, L, K, 4), dtype=object)
+    proba_maps = np.zeros((n_iter, L, K, 8), dtype=object)
 
     # get deep features from VGG-19
     deep_features = get_conv2d_features(model, im_torch)
@@ -843,7 +843,7 @@ def model_c(
                         mode="nearest",
                     ).reshape(ny * nx, kk)
                 elif spatial_smoothing == 0:
-                    #GAUSSIAN KERNEL IS INF
+                    # GAUSSIAN KERNEL IS INF
                     # CHANGED: #2: assign prior_means and prior_var using responsibilities Tau
                     # prior_means_smm[k,l] = tau_smm[l].reshape(ny, nx, kk)
                     # prior_var = (tau_smm[l]**2).reshape(ny,nx,kk)
@@ -865,7 +865,7 @@ def model_c(
                         .repeat(ny * nx, axis=0)
                     ).reshape(ny * nx, kk)
                 elif spatial_smoothing == -1:
-                    #GAUSSIAN KERNEL IS EPS
+                    # GAUSSIAN KERNEL IS EPS
                     prior_means_smm[k, l] = tau_smm[l].reshape(ny * nx, kk)
                     prior_var = (
                         np.mean((tau_smm[l] ** 2), axis=0)
@@ -972,6 +972,10 @@ def model_c(
                     proba_maps[i, l, k, 1] = res[l, k, 2, 0].means_
                     proba_maps[i, l, k, 2] = res[l, k, 2, 0].covars_
                     proba_maps[i, l, k, 3] = res[l, k, 2, 0].degrees_
+                    proba_maps[i, l, k, 4] = tau_smm[l]
+                    proba_maps[i, l, k, 5] = lkls_smm[l]
+                    proba_maps[0, l, k, 6] = Xpca[l]
+                    proba_maps[0, l, k, 7] = deep_features[l]
 
                 else:  # use the posterior probaiblities for the spatial_smoothing==0 case because
                     # prior probabilty is scalar
@@ -982,7 +986,8 @@ def model_c(
                     assert (
                         regular_mixture_prior.shape == _regular_mixture_posterior.shape
                     )
-                    proba_maps[i, l, k, 1] = _regular_mixture_posterior
+                    proba_maps[i, l, k, 0] = _regular_mixture_posterior
+                    proba_maps[i, l, k, 1] = tau_smm[l]
                 # GMM
                 if gmm:
                     res[l, k, 1, 0].prior_means = prior_wm_gmm[l]
