@@ -284,6 +284,8 @@ class SegmentationMap:
         # calls files in seg/segment.py
         # TODO: put new arguments into model a and model c | keep=False
         if keep:
+            assert model == "c"
+            assert layer_stop == 1
             # run model 'c' keep results at each EM iteration
             if "c" in model:
                 self.model_res["c"], self._res_iter = seg._fit_model(
@@ -297,6 +299,46 @@ class SegmentationMap:
                     spatial_smoothing=spatial_smoothing,
                     deepnet=deepnet,
                 )
+
+            make_array = lambda x: np.asarray([item for item in x if type(item) != int])
+            weights = self._res_iter.T[0].squeeze()
+            self.flat_weights = make_array(weights)
+            self.weights_t = np.asarray(
+                [
+                    weight.reshape((*self.im.shape[:2], self.model_components[0]))
+                    for weight in weights
+                    if type(weight) != int
+                ]
+            )
+            self.segmap = self.weights_t[-1, :, :, :].argmax(-1).astype("int")
+
+            self.means_t = make_array(self._res_iter.T[1].squeeze())
+            self.covars_t = make_array(self._res_iter.T[2].squeeze())
+            self.degrees_t = make_array(self._res_iter.T[3].squeeze())
+
+            responsibilities = self._res_iter.T[4].squeeze()
+            self.responsibilities_t = np.asarray(
+                [
+                    resp.reshape((*self.im.shape[:2], self.model_components[0]))
+                    for resp in responsibilities
+                    if type(resp) != int
+                ]
+            )
+            self.likelihoods = make_array(self._res_iter.T[5].squeeze())
+
+            self.flat_pca = make_array(self._res_iter.T[6].squeeze()[0])
+            self.data_pca = (
+                self._res_iter.T[6].squeeze()[0].reshape((*self.im.shape[:2], -1))
+            )
+
+            self.data = (
+                self._res_iter.T[7].squeeze()[0].reshape((*self.im.shape[:2], -1))
+            )
+            self.model_fitted = self.model_res["c"].squeeze()[2]
+            self.test = self.model_fitted._posterior_proba(
+                self.data_pca.reshape((-1, 6))
+            )
+
         else:
             # run model 'a'
             if "a" in model:
