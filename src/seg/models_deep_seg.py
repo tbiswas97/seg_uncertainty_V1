@@ -969,13 +969,6 @@ def model_c(
                 if spatial_smoothing == 1:
                     # TEMP CHANGE
                     proba_maps[i, l, k, 0] = res[l, k, 2, 0].weights_
-                    proba_maps[i, l, k, 1] = res[l, k, 2, 0].means_
-                    proba_maps[i, l, k, 2] = res[l, k, 2, 0].covars_
-                    proba_maps[i, l, k, 3] = res[l, k, 2, 0].degrees_
-                    proba_maps[i, l, k, 4] = tau_smm[l]
-                    proba_maps[i, l, k, 5] = lkls_smm[l]
-                    proba_maps[0, l, k, 6] = Xpca[l]
-                    proba_maps[0, l, k, 7] = deep_features[l]
 
                 else:  # use the posterior probaiblities for the spatial_smoothing==0 case because
                     # prior probabilty is scalar
@@ -987,7 +980,13 @@ def model_c(
                         regular_mixture_prior.shape == _regular_mixture_posterior.shape
                     )
                     proba_maps[i, l, k, 0] = _regular_mixture_posterior
-                    proba_maps[i, l, k, 1] = tau_smm[l]
+                proba_maps[i, l, k, 1] = res[l, k, 2, 0].means_
+                proba_maps[i, l, k, 2] = res[l, k, 2, 0].covars_
+                proba_maps[i, l, k, 3] = res[l, k, 2, 0].degrees_
+                proba_maps[i, l, k, 4] = tau_smm[l]
+                proba_maps[i, l, k, 5] = lkls_smm[l]
+                proba_maps[0, l, k, 6] = Xpca[l]
+                proba_maps[0, l, k, 7] = deep_features[l]
                 # GMM
                 if gmm:
                     res[l, k, 1, 0].prior_means = prior_wm_gmm[l]
