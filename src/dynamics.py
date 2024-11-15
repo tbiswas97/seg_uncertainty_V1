@@ -1,8 +1,15 @@
+import numpy as np
+from scipy.stats import entropy
+from numpy.lib.stride_tricks import sliding_window_view
+
+
 def point_likelihood(coord, SegMap):
     """
     Find the likelihood of an observation (pixel) in the SegMap object
     uses *unnormalized* probability
     """
+    h, w = SegMap.im.shape
+    weights = SegMap.weights_t
     model_ = SegMap.model_fitted
     data = SegMap.flat_pca
     flat_index = np.ravel_multi_index(
@@ -24,6 +31,8 @@ def point_convergence(coord, SegMap):
     """
     Finds convergence based on the KLD(pi^(t)||pi^(t-1))
     """
+    h, w = SegMap.im.shape
+    weights = SegMap.weights_t
     flat_index = np.ravel_multi_index(
         (np.array([coord[0]]), np.array([coord[1]])), (h, w)
     )
@@ -85,6 +94,8 @@ def check_derivatives(index, d1, d2, epsilon=1):
 
 
 def find_pointwise_rt(coord, SegMap, kern_size=3, kld_tol=0.005, use_lkl=0.01):
+
+    h, w = SegMap.im.shape
 
     flat_index = np.ravel_multi_index(
         (np.array([coord[0]]), np.array([coord[1]])), (h, w)
