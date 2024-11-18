@@ -8,7 +8,7 @@ def point_likelihood(coord, SegMap):
     Find the likelihood of an observation (pixel) in the SegMap object
     uses *unnormalized* probability
     """
-    h, w = SegMap.im.shape
+    h, w = SegMap.im.shape[:2]
     weights = SegMap.weights_t
     model_ = SegMap.model_fitted
     data = SegMap.flat_pca
@@ -31,7 +31,7 @@ def point_convergence(coord, SegMap):
     """
     Finds convergence based on the KLD(pi^(t)||pi^(t-1))
     """
-    h, w = SegMap.im.shape
+    h, w = SegMap.im.shape[:2]
     weights = SegMap.weights_t
     flat_index = np.ravel_multi_index(
         (np.array([coord[0]]), np.array([coord[1]])), (h, w)
@@ -95,7 +95,7 @@ def check_derivatives(index, d1, d2, epsilon=1):
 
 def find_pointwise_rt(coord, SegMap, kern_size=3, kld_tol=0.005, use_lkl=0.01):
 
-    h, w = SegMap.im.shape
+    h, w = SegMap.im.shape[:2]
 
     flat_index = np.ravel_multi_index(
         (np.array([coord[0]]), np.array([coord[1]])), (h, w)
@@ -146,3 +146,105 @@ def find_pointwise_rt(coord, SegMap, kern_size=3, kld_tol=0.005, use_lkl=0.01):
             out = len(smooth_conv)
 
     return out
+
+
+def _get_psame_t(coord1, coord2, SegMap):
+
+    pmap = np.moveaxis(SegMap.weights_t, -1, 1)
+
+    n_iter = pmap.shape[0]
+
+    pmap_a = pmap[:, :, coord1[0], coord1[1]]
+
+    pmap_b = pmap[:, :, coord2[0], coord2[1]]
+
+    psame_t = np.asarray([np.dot(pmap_a[i], pmap_b[i]) for i in range(n_iter)])
+
+    return psame_t
+
+
+def _get_seg_flag_t(coord1, coord2, SegMap):
+
+    pmap = np.moveaxis(SegMap.weights_t, -1, 1)
+    n_iter = pmap.shape[0]
+
+    pmap_a = pmap[:, :, coord1[0], coord1[1]]
+
+    pmap_b = pmap[:, :, coord2[0], coord2[1]]
+
+    seg_a = pmap_a.argmax(1)
+
+    seg_b = pmap_b.argmax(1)
+
+    seg_flag_t = seg_a == seg_b
+
+    return seg_flag_t
+
+
+def _get_entropy(coord1, coord2, SegMap):
+
+    pmap = np.moveaxis(SegMap.weights_t, -1, 1)
+    n_iter = pmap.shape[0]
+
+    pmap_a = pmap[:, :, coord1[0], coord1[1]]
+
+    seg_a = pmap_a.argmax(1)
+
+    pmap_b = pmap[:, :, coord2[0], coord2[1]]
+
+    seg_b = pmap_b.argmax(1)
+
+    psame_t = np.asarray([np.dot(pmap_a[i], pmap_b[i]) for i in range(n_iter)])
+    seg_flag_t = seg_a == seg_b
+
+    assert len(psame_t) == len(seg_flag_t)
+
+    return entropy(psame_t[..., np.newaxis], axis=1)
+
+
+def _get_evidence(coord1, coord2, SegMap, evidence_type="logit"):
+    if evidence_type == "logit":
+        get_logit = lambda x: np.log(x) - np.log(1 - x)
+
+        psame = _get_psame_t(coord1, coord2, SegMap)
+        sf_t = _get_seg_flag_t(coord1, coord2, SegMap)
+        logit = get_logit(psame)
+
+        return logit
+
+
+def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
+    if boundary is not None:
+        boundary = boundary
+    else:
+        boundary = 0.8 * np.max(evidence)
+
+    if pointwise_rt is not None:
+        slow_point = np.max(pointwise_rt)
+        slow_point_idx = np.ceil(slow_point).astype("int")
+        try:
+            if yes_no == "yes":
+                bound_idx = np.where(evidence > boundary)[0][0]
+            elif yes_no == "no":
+                bound_idx = np.where(evidence < -boundary)[0][0]
+            if bound_idx < np.ceil(slow_point_idx):
+                rt = slow_point_idx
+            else:
+                rt = bound_idx
+
+        except:
+            rt = len(evidence)
+    else:
+        try:
+            if yes_no == "yes":
+                bound_idx = np.where(evidence > boundary)[0][0]
+            elif yes_no == "no":
+                bound_idx = np.where(evidence < -boundary)[0][0]
+            rt = bound_idx
+        except:
+            rt = len(evidence)
+
+    if rt == 0:
+        rt = 1
+
+    return rt
