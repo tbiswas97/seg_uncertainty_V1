@@ -418,20 +418,90 @@ class SegmentationMap:
 
         return None
 
-    def get_dynamic_map(self, coords, coord_idxs, shape=None):
+    # TODO: changed use_pseudocoords variable name to reflect that it is a window size
+    def get_dynamic_map(
+        self, coords, shape=None, use_pseudocoords=None, sample_size=10
+    ):
+        """
+        coords : list to points to calculate rt at
+        shape :
+
+        """
+        self.pseudocoords_sample_size = sample_size
+        fpr = lambda x: dynamics.find_pointwise_rt(x, self)
 
         if shape is not None:
             shape = shape
         else:
             shape = int(np.sqrt(len(coords)))
+        # use pseudocoords for binning:
+        if use_pseudocoords is not None:
+            canvas = np.zeros(self.im.shape[:-1])
+
+            # window around points
+            win = use_pseudocoords
+
+            pseudocoords = np.zeros((len(coords), ((2 * win) ** 2) - 1, 2)).astype(
+                "int"
+            )
+            pseudorts = np.zeros((len(coords), sample_size))
+            for i, coord in enumerate(coords):
+                canvas[
+                    coord[0] - win : coord[0] + win, coord[1] - win : coord[1] + win
+                ] = (i + 1)
+                canvas[coord[0], coord[1]] = -(i + 1)
+
+                pseudocoords[i, ...] = np.argwhere(canvas == (i + 1)).astype("int")
+
+                samples = np.random.randint(0, (((2 * win) ** 2) - 1), size=sample_size)
+
+                mask = np.ones((((2 * win) ** 2) - 1), dtype="bool")
+                mask[samples] = False
+
+                pseudocoords[i, mask, ...] = -1
+
+                pseudorts[i, ...] = np.asarray(
+                    [fpr(coord) for coord in pseudocoords[i, samples, ...]]
+                )
+
+            self.pseudocoords = pseudocoords
+            pseudorts_binned = np.mean(pseudorts, axis=1)
+
         rts = [dynamics.find_pointwise_rt(coord, self) for coord in coords]
 
-        self.pointwise_rts = np.asarray(rts)
-        self.dynamic_map_ = np.asarray(rts).reshape(shape, shape).T
+        if use_pseudocoords is not None:
+            weight = 1 / (sample_size + 1)
+            self.pointwise_rts = (
+                weight * np.asarray(rts) + (1 - weight) * pseudorts_binned
+            )
+        else:
+            self.pointwise_rts = np.asarray(rts)
 
-        return np.asarray(rts)
+        self.dynamic_map = self.pointwise_rts.reshape((shape, shape))
 
-    def _pairwise_kernel_smooth_vs_distance(self, coords, coords_idx, kernel_size=10):
+        return self.pointwise_rts
+
+    def _pseudo_logits(self, coords_idx):
+
+        pseudologits = []
+        get_pos = lambda x: x[x > 0].reshape((-1, 2))
+
+        for coord in coords_idx:
+            neigh_a = get_pos(self.pseudocoords[coord[0] - 1])
+            neigh_b = get_pos(self.pseudocoords[coord[1] - 1])
+            all_pairs = [[a, b] for a in neigh_a for b in neigh_b]
+            logits = np.asarray(
+                [dynamics._get_evidence(pair[0], pair[1], self) for pair in all_pairs]
+            )
+            pseudologits.append(np.mean(logits, axis=0))
+
+        self.pseudologits = np.asarray(pseudologits)
+
+        return self.pseudologits
+
+    def _pairwise_kernel_smooth_vs_distance(
+        self, coords, coords_idx, kernel_size=10, use_pseudocoords=None
+    ):
         distances = np.asarray(
             [tb.euclidean_distance(coord[0], coord[1]) for coord in coords]
         )
@@ -441,6 +511,27 @@ class SegmentationMap:
         logits = np.asarray(
             [dynamics._get_evidence(coord[0], coord[1], self) for coord in coords]
         )
+        if use_pseudocoords is not None:
+            pass
+            weight = 1 / (self.pseudocoords_sample_size - 1)
+            logits = weight * logits + (1 - weight) * self.pseudologits
+        else:
+            pass
+
+        sfs_t = sfs_t.astype("bool")
+
+        np_idxs = np.asarray(coords)
+
+        np_idx_y = np_idxs[sfs_t[:, -1]]
+        np_idx_n = np_idxs[~sfs_t[:, -1]]
+
+        master_idx = np.asarray(list(range(len(coords_idx))))
+
+        master_idx_y = master_idx[sfs_t[:, -1]]
+        master_idx_n = master_idx[~sfs_t[:, -1]]
+
+        coords_idx_y = coords_idx[sfs_t[:, -1]]
+        coords_idx_n = coords_idx[~sfs_t[:, -1]]
 
         distances_y = distances[sfs_t[:, -1]]
         logits_y = logits[sfs_t[:, -1]]
@@ -500,6 +591,9 @@ class SegmentationMap:
                     ]
                 )
 
+        self.pairwise_idxs = {"y": coords_idx_y, "n": coords_idx_n}
+        self.master_idxs = {"y": master_idx_y, "n": master_idx_n}
+        self.np_idxs = {"y": np_idx_y, "n": np_idx_n}
         self.pairwise_distances = distances
         self.pairwise_logits = logits
         self.pairwise_rts = rts
@@ -511,6 +605,7 @@ class SegmentationMap:
         coords_idx,
         kernel_size=10,
         use_pointwise_rts=True,
+        use_pseudocoords=None,
         boundary=None,
     ):
 
@@ -526,13 +621,76 @@ class SegmentationMap:
         else:
             boundary = [1, 2]
 
-        self.get_dynamic_map(points, self)
+        if use_pseudocoords is not None:
+            self.get_dynamic_map(
+                points, use_pseudocoords=5, sample_size=use_pseudocoords
+            )
 
-        self._pairwise_kernel_smooth_vs_distance(
-            coords,
-            coords_idx,
-            kernel_size,
-        )
+            self._pseudo_logits(coords_idx)
+
+            self._pairwise_kernel_smooth_vs_distance(
+                coords, coords_idx, kernel_size, use_pseudocoords=True
+            )
+
+            pairwise_decision_rts_y = np.asarray(
+                [
+                    dynamics._get_decision_rt(
+                        "yes", evidence, pointwise_rt=temp, boundary=boundary[0]
+                    )
+                    for evidence, temp in zip(
+                        self.pairwise_logits["y"], self.pairwise_rts["y"]
+                    )
+                ]
+            )
+
+            pairwise_decision_rts_n = np.asarray(
+                [
+                    dynamics._get_decision_rt(
+                        "no", evidence, pointwise_rt=temp, boundary=boundary[1]
+                    )
+                    for evidence, temp in zip(
+                        self.pairwise_logits["n"], self.pairwise_rts["n"]
+                    )
+                ]
+            )
+
+            self.pairwise_decision_rts = {
+                "y": pairwise_decision_rts_y,
+                "n": pairwise_decision_rts_n,
+            }
+
+            boolean_decision = lambda x: 1 if x == "y" else 0
+
+            dfs = []
+            for _key in ["y", "n"]:
+                d = {
+                    "pair_idx": [idx for idx in self.master_idxs[_key]],
+                    "grid_idx_0": [
+                        grid_idx[0] for grid_idx in self.pairwise_idxs[_key]
+                    ],
+                    "grid_idx_1": [
+                        grid_idx[1] for grid_idx in self.pairwise_idxs[_key]
+                    ],
+                    "np_idx_0": [np_idx[0] for np_idx in self.np_idxs[_key]],
+                    "np_idx_1": [np_idx[1] for np_idx in self.np_idxs[_key]],
+                    "image_distance": [dist for dist in self.pairwise_distances[_key]],
+                    "model_rt": [rt for rt in self.pairwise_decision_rts[_key]],
+                    "model_decision": [boolean_decision(_key)]
+                    * len(self.master_idxs[_key]),
+                }
+
+                df = pd.DataFrame.from_dict(d)
+                dfs.append(df)
+
+            self.dynamics_df_pairwise = pd.concat(dfs, ignore_index=True)
+        else:
+            self.get_dynamic_map(points)
+
+            self._pairwise_kernel_smooth_vs_distance(
+                coords,
+                coords_idx,
+                kernel_size,
+            )
 
         if use_pointwise_rts:
             decision_rts_y = np.asarray(
@@ -580,6 +738,27 @@ class SegmentationMap:
             )
 
         self.decision_rts = {"y": decision_rts_y, "n": decision_rts_n}
+
+        if kernel_size is not None:
+            d = {
+                "rt": [item for item in self.decision_rts["y"]]
+                + [item for item in self.decision_rts["n"]],
+                "distance": [item for item in self.pairwise_distances["ys"]]
+                + [item for item in self.pairwise_distances["ns"]],
+                "seg_flag": [1 for item in self.decision_rts["y"]]
+                + [0 for item in self.decision_rts["n"]],
+            }
+
+            self.dynamics_df_distance = pd.DataFrame.from_dict(d)
+        else:
+            d = {
+                "rt": [item for item in self.decision_rts["y"]]
+                + [item for item in self.decision_rts["n"]],
+                "distance": [item for item in self.pairwise_distances["y"]]
+                + [item for item in self.pairwise_distances["n"]],
+                "seg_flag": [1 for item in self.decision_rts["y"]]
+                + [0 for item in self.decision_rts["n"]],
+            }
 
     def crop(
         self,
