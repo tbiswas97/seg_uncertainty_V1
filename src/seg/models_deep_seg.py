@@ -28,6 +28,29 @@ Helper: get features from each layer and send them back as numpy arrays
 """
 
 
+def _reshape_deep_layers(result, layer, N_list, d_list):
+    if result.ndim == 1:
+        result = result[np.newaxis, ...]
+
+    Ny, Nx = N_list[0]
+    ny, nx = N_list[layer]
+    d = d_list[layer]
+    multiplier = Ny // ny
+    m = multiplier
+
+    if result.ndim == 2:
+        k = result.shape[-1]
+        to_mult = result.reshape((ny, nx, -1))
+        reshaped = to_mult.repeat(m, 0).repeat(m, 1)
+
+        out = reshaped.reshape((-1, k))
+    elif result.ndim == 3:
+        reshaped = result.repeat(m, 0).repeat(m, 1)
+        out = reshaped
+
+    return out
+
+
 # Get deep features from <model> as applied to <im_torch>
 def get_conv2d_features(model, im_torch):
     deep_features = []
@@ -614,12 +637,15 @@ def model_c(
     keep=False,
     prior_weights="ext3",
     spatial_smoothing=True,
+    layer_normalization=True,
+    reshape_deep_layers=True,
 ):
     # do not use KMeans initialization if initial (groundtruth) map is provided
     if gt is not None:
         kmeans = False
     model = copy.deepcopy(model)
-    ny, nx = im.shape[:2]
+    Ny, Nx = im.shape[:2]  # image INPUT shape (doesn't change with layer)
+    ny, nx = im.shape[:2]  # shape AT LAYER
     # initial n_components for model
     K = K_list.shape[0]
     # reshape image so color channels are the last dimension
@@ -824,13 +850,16 @@ def model_c(
                 # NOTE: tau_smm are responsibilities of each mixture component
                 # NOTE: nu are the gammaweights (GSM mixer) for a particular mixture component
                 lkls_smm, tau_smm[l], nu[l] = res[l, k, 2, 0]._expectation_step(Xpca[l])
+                rdl = lambda x: _reshape_deep_layers(x, l, N_list, d_list)
+                # saves the likelihood per observation as output
+                proba_maps[i, l, k, 5] = lkls_smm
+                if ny != Ny:
+                    proba_maps[i, l, k, 5] = rdl(lkls_smm)
                 # NOTE: calculate the log-likelihood from the likelihood
                 lkl_smm[k, l, i] = np.log(lkls_smm).mean()
                 # NOTE: convolves responsibilites at every point with a 2D gaussian
-                # each point gets the weighted average of the responibilities of each component
-                # DEBUG: self.neighbors does not exist if prior_weights is None
-                # CHANGED: #1: try putting this in a conditional
                 if spatial_smoothing == 1:
+                    # each point gets the weighted average of the responibilities of each component
                     prior_means_smm[k, l] = sp.ndimage.convolve(
                         tau_smm[l].reshape(ny, nx, kk),
                         res[l, k, 2, 0].neighbors,
@@ -844,16 +873,6 @@ def model_c(
                     ).reshape(ny * nx, kk)
                 elif spatial_smoothing == 0:
                     # GAUSSIAN KERNEL IS INF
-                    # CHANGED: #2: assign prior_means and prior_var using responsibilities Tau
-                    # prior_means_smm[k,l] = tau_smm[l].reshape(ny, nx, kk)
-                    # prior_var = (tau_smm[l]**2).reshape(ny,nx,kk)
-                    # CHANGED: #3: reshape to ny*nx
-                    # CHANGED: #7: divide Tau by N
-                    # output appears consistent on inspection but final probabilities do not sum to 1
-                    # CHANGED: #8: prior_means_smm[k,l] should sum to 1
-                    # prior_means_smm[k, l] = tau_smm[l].reshape(ny * nx, kk) / (ny * nx)
-                    # prior_var = (tau_smm[l] ** 2).reshape(ny * nx, kk) / (ny * nx)
-
                     prior_means_smm[k, l] = (
                         np.mean(tau_smm[l], axis=0)
                         .T[np.newaxis, ...]
@@ -919,17 +938,23 @@ def model_c(
                 if gmm:
                     var_gmm_prod = var_gmm[l - 1 : l + 2]
                     var_gmm_prod = np.prod(
-                        var_gmm_prod[np.newaxis] * (1 - np.eye(3)) + np.eye(3), axis=1
+                        var_gmm_prod[np.newaxis] * (1 - np.eye(3)) + np.eye(3),
+                        axis=1,
                     )
 
                 prior_wm_smm[l - 1] = 0
                 if gmm:
                     prior_wm_gmm[l - 1] = 0
 
-                for j in range(-1, 2):
+                if layer_normalization:
+                    _range = range(-1, 2)
+                else:
+                    _range = [0]
+                for j in _range:
                     if n_list[l + j][0] < ny:
                         means_smm_ = unpooling(
-                            means_smm[j + l].reshape(ny // 2, nx // 2, kk), (2, 2, 1)
+                            means_smm[j + l].reshape(ny // 2, nx // 2, kk),
+                            (2, 2, 1),
                         ).reshape(ny * nx, kk)
                         if gmm:
                             means_gmm_ = unpooling(
@@ -959,6 +984,9 @@ def model_c(
 
             for l in range(L):
                 # SMM
+                rdl = lambda x: _reshape_deep_layers(x, l, N_list, d_list)
+                ny, nx = N_list[l]
+                d = d_list[l]
                 res[l, k, 2, 0].prior_means = prior_wm_smm[l]
                 res[l, k, 2, 0].prior_norm = 1
                 res[l, k, 2, 0].q_weights_ = tau_sum_smm / (
@@ -969,6 +997,9 @@ def model_c(
                 if spatial_smoothing == 1:
                     # TEMP CHANGE
                     proba_maps[i, l, k, 0] = res[l, k, 2, 0].weights_
+                    if l > 1 and reshape_deep_layers:
+                        reshaped_weights = rdl(res[l, k, 2, 0].weights_)
+                        proba_maps[i, l, k, 0] = reshaped_weights
 
                 else:  # use the posterior probaiblities for the spatial_smoothing==0 case because
                     # prior probabilty is scalar
@@ -984,9 +1015,15 @@ def model_c(
                 proba_maps[i, l, k, 2] = res[l, k, 2, 0].covars_
                 proba_maps[i, l, k, 3] = res[l, k, 2, 0].degrees_
                 proba_maps[i, l, k, 4] = tau_smm[l]
-                proba_maps[i, l, k, 5] = lkls_smm[l]
                 proba_maps[0, l, k, 6] = Xpca[l]
                 proba_maps[0, l, k, 7] = deep_features[l]
+                if l > 1 and reshape_deep_layers:
+                    # move the feature axis so that it's the last axis
+                    deep_features = np.moveaxis(deep_features, 0, -1)
+                    proba_maps[i, l, k, 4] = rdl(tau_smm[l])
+                    proba_maps[0, l, k, 6] = rdl(Xpca[l])
+                    proba_maps[0, l, k, 7] = rdl(deep_features[l])
+
                 # GMM
                 if gmm:
                     res[l, k, 1, 0].prior_means = prior_wm_gmm[l]
