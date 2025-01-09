@@ -445,7 +445,13 @@ class SMM(sklearn.base.BaseEstimator):
                     pass
 
     def _initialization_step(
-        self, X, gt=None, gt_eps=None, n_components_best=None, use_kmeans=False
+        self,
+        X,
+        gt=None,
+        gt_eps=None,
+        gt_partition=0,
+        n_components_best=None,
+        use_kmeans=False,
     ):
         """Performs the initialization step of the EM algorithm.
 
@@ -469,9 +475,13 @@ class SMM(sklearn.base.BaseEstimator):
                 # NOTE: assign mean of t- components as mean of KMeans cluster centers
                 self.means_ = kmeans.fit(X).cluster_centers_
             elif gt is not None:
-                cluster_centers, _ = tb.gt_pca_cluster_centers(X, gt)
-                self.means_ = cluster_centers
-                assert self.means_.shape[0] == self.n_components
+                if gt_partition:
+                    cluster_centers, _ = tb.gt_pca_cluster_centers(X, gt)
+                    self.means_ = cluster_centers
+                    assert self.means_.shape[0] == self.n_components
+                else:
+                    self.means_ = np.mean(X.T)
+                    assert self.means_.shape[0] == self.n_components
             else:
                 # NOTE: if no k-means or groundtruth initialization, initialize means to 0
                 self.means_ = np.zeros((self.n_components, X.shape[1]))
