@@ -117,7 +117,7 @@ class SegmentationMap:
                 )
 
             self.gts = import_utils.load_bsd_mat(self.seg_path)
-            self.model_res = {}
+            self._model_res = {}
 
             for gt in self.gts:
                 assert self.im.shape[0:2] == self.gts[0].shape
@@ -149,7 +149,7 @@ class SegmentationMap:
             self.k = None
             self.iid_idx = _in[0]
             self.im = import_utils.norm_im(_in[1])
-            self.model_res = {}
+            self._model_res = {}
             self.seg_maps = {}
             self.cropped = False
             self.session_loaded = False
@@ -160,7 +160,6 @@ class SegmentationMap:
 
     def __repr__(self) -> str:
         a = "IID:{}\n".format(self.iid)
-        b = "n_users:{}\n".format(len(self.k))
         c = "n_components : [user(s)]\n"
         d = "--------------------"
         print(c + d)
@@ -177,7 +176,7 @@ class SegmentationMap:
         print("cropped : {}".format(self.cropped))
         print("session loaded : {}".format(self.session_loaded))
 
-        return a + b
+        return a
 
     def make_grayscale(self, im):
         out = tb.rgb2gray(im)
@@ -201,6 +200,8 @@ class SegmentationMap:
         init=None,
         init_eps=None,
         spatial_smoothing=True,
+        layer_normalization=True,
+        reshape_deep_layers=True,
         deepnet="vgg19",
     ):
         """
@@ -219,7 +220,7 @@ class SegmentationMap:
             Maximum allowed number of components
         layer_start, layer_stop, layer_step : int
             layers will be assigned to the self.seg_maps variable according to indexes: [layer_start, layer_stop, layer_step]
-        binning : bool
+        binning (depr) : bool
             Determines whether output segmentation maps at shallow layers are artificially downsampled (binned)
         use_crop : bool
             Determines whether to run the segmentation on the cropped image or the uncropped image
@@ -231,10 +232,9 @@ class SegmentationMap:
             Array of shape(image height, image width), this is the initial guess during segmentation fitting
         init_eps: float
             This is the amount of uncertainty injected with the initial guess, if None 0.0001 is used as default
-        prior_weights: str
-            determines the nature of the spatial smoothing
-                "ext3" (default): uses Dirichlet hyperparameter
-                None: no spatial smoothing
+        spatial_smoothing : bool
+            True if using spatial smoothing (2D Gaussian finite kernel)
+            False if no spatial smoothing (2D Gaussian infinite kernel)
         deepnet : str
             determines which deep network is used for feature extraction, default is VGG19
 
@@ -246,8 +246,33 @@ class SegmentationMap:
         self.seg_maps : dict
         """
         if deepnet is not None:
+            # only the first layer of AlexNet can be used
             if deepnet == "AlexNet":
                 layer_stop = 1
+        else:
+            # default deepnet is VGG19
+            ny, nx = self.im.shape[:2]
+            # layer sizes for VGG (due to pooling)
+            self.N_list = np.array(
+                [
+                    (ny, nx),
+                    (ny, nx),
+                    (ny // 2, nx // 2),
+                    (ny // 2, nx // 2),
+                    (ny // 4, nx // 4),
+                    (ny // 4, nx // 4),
+                    (ny // 4, nx // 4),
+                    (ny // 4, nx // 4),
+                    (ny // 8, nx // 8),
+                    (ny // 8, nx // 8),
+                    (ny // 8, nx // 8),
+                    (ny // 8, nx // 8),
+                    (ny // 16, nx // 16),
+                    (ny // 16, nx // 16),
+                    (ny // 16, nx // 16),
+                    (ny // 16, nx // 16),
+                ]
+            )
         if keep:
             assert model == "c", 'Must use model "c" if keep is True'
 
@@ -261,10 +286,13 @@ class SegmentationMap:
 
         n_components = n_components[n_components < max_components]
 
+        # model_components is the number of components used by the model at runtime
         self.model_components = n_components
 
         if init is not None:
+            # ensure that the initial guess is an array
             assert type(init) == np.ndarray
+            # init option only defined for model 'c'
             assert model == "c", 'Must use model "c" if init is not None'
             if init_eps is not None:
                 k = self.model_components[-1]
@@ -286,13 +314,11 @@ class SegmentationMap:
 
         # SEGMENTATION STEP:
         # calls files in seg/segment.py
-        # TODO: put new arguments into model a and model c | keep=False
         if keep:
-            assert model == "c"
-            assert layer_stop == 1
             # run model 'c' keep results at each EM iteration
+            # for layers until layer_stop
             if "c" in model:
-                self.model_res["c"], self._res_iter = seg._fit_model(
+                self._model_res["c"], self.__res_iter = seg._fit_model(
                     model_im,
                     model_type="c",
                     n_components=n_components,
@@ -302,9 +328,25 @@ class SegmentationMap:
                     init_eps=init_eps,
                     spatial_smoothing=spatial_smoothing,
                     deepnet=deepnet,
+                    layer_normalization=layer_normalization,
+                    reshape_deep_layers=reshape_deep_layers,
                 )
 
             make_array = lambda x: np.asarray([item for item in x if type(item) != int])
+            # single_layer results here
+            self.model_res = {}
+            if layer_stop > 1:
+                self._res_iter = self.__res_iter[:, layer_stop - 1, :, :]
+                self.model_res["c"] = self._model_res["c"][layer_stop - 1, ...]
+                # self.active_layer is initially layer_stop but is changed with parse_layer
+                self.active_layer = layer_stop
+                # self.layer_stop is a record of all layers that were fixed
+                self.layer_stop = layer_stop
+            else:
+                self._res_iter = self.__res_iter
+                self.model_res["c"] = self._model_res["c"]
+
+            # parse attributes of the model
             weights = self._res_iter.T[0].squeeze()
             self.flat_weights = make_array(weights)
             self.weights_t = np.asarray(
@@ -339,11 +381,9 @@ class SegmentationMap:
                 self._res_iter.T[7].squeeze()[0].reshape((*self.im.shape[:2], -1))
             )
             self.model_fitted = self.model_res["c"].squeeze()[2]
-            self.test = self.model_fitted._posterior_proba(
-                self.data_pca.reshape((-1, 6))
-            )
 
         else:
+            # non-keep option only saves the last EM iteration
             # run model 'a'
             if "a" in model:
                 self.model_res["a"] = seg._fit_model(
@@ -369,6 +409,7 @@ class SegmentationMap:
                     model_type="c",
                     n_components=n_components,
                     layer=layer_stop,
+                    init=init,
                     deepnet=deepnet,
                 )
         d = self.model_res
@@ -417,6 +458,45 @@ class SegmentationMap:
         # self.c_seg_maps = self.seg_maps
 
         return None
+
+    def parse_layer(self, layer):
+        assert layer > 0, "layers are 1-indexed"
+        make_array = lambda x: np.asarray([item for item in x if type(item) != int])
+        self._res_iter = self.__res_iter[:, layer - 1, :, :]
+        self.model_res["c"] = self._model_res["c"][layer - 1, ...]
+        weights = self._res_iter.T[0].squeeze()
+        self.flat_weights = make_array(weights)
+        self.weights_t = np.asarray(
+            [
+                weight.reshape((*self.im.shape[:2], self.model_components[0]))
+                for weight in weights
+                if type(weight) != int
+            ]
+        )
+        self.segmap = self.weights_t[-1, :, :, :].argmax(-1).astype("int")
+
+        self.means_t = make_array(self._res_iter.T[1].squeeze())
+        self.covars_t = make_array(self._res_iter.T[2].squeeze())
+        self.degrees_t = make_array(self._res_iter.T[3].squeeze())
+
+        responsibilities = self._res_iter.T[4].squeeze()
+        self.responsibilities_t = np.asarray(
+            [
+                resp.reshape((*self.im.shape[:2], self.model_components[0]))
+                for resp in responsibilities
+                if type(resp) != int
+            ]
+        )
+        self.likelihoods = make_array(self._res_iter.T[5].squeeze())
+
+        self.flat_pca = make_array(self._res_iter.T[6].squeeze()[0])
+        self.data_pca = (
+            self._res_iter.T[6].squeeze()[0].reshape((*self.im.shape[:2], -1))
+        )
+
+        self.data = self._res_iter.T[7].squeeze()[0].reshape((*self.im.shape[:2], -1))
+        self.model_fitted = self.model_res["c"].squeeze()[2]
+        self.active_layer = layer
 
     # TODO: changed use_pseudocoords variable name to reflect that it is a window size
     def get_dynamic_map(
@@ -677,6 +757,7 @@ class SegmentationMap:
                     "model_rt": [rt for rt in self.pairwise_decision_rts[_key]],
                     "model_decision": [boolean_decision(_key)]
                     * len(self.master_idxs[_key]),
+                    "layer": [self.active_layer] * len(self.master_idxs[_key]),
                 }
 
                 df = pd.DataFrame.from_dict(d)
@@ -760,6 +841,45 @@ class SegmentationMap:
                 + [0 for item in self.decision_rts["n"]],
             }
 
+    def get_decision_rts_layers(
+        self,
+        points,
+        pairs,
+        coords_idx,
+        layers=None,
+        kernel_size=10,
+        use_pointwise_rts=True,
+        use_pseudocoords=None,
+        boundary=None,
+    ):
+        layer_dfs = []
+        if layers is not None:
+            layers = layers
+        else:
+            layers = range(self.layer_stop)
+        for layer in layers:
+            assert layer in range(
+                1, self.layer_stop + 1
+            ), "layer {} was not fit".format(layer)
+            self.parse_layer(layer)
+            self.get_decision_rts(
+                points,
+                pairs,
+                coords_idx,
+                kernel_size=kernel_size,
+                use_pointwise_rts=use_pointwise_rts,
+                use_pseudocoords=use_pseudocoords,
+                boundary=boundary,
+            )
+
+            layer_dfs.append(self.dynamics_df_pairwise)
+
+        out = pd.concat(layer_dfs)
+
+        self.ddf_pairwise_all_layers = out
+
+        return self.ddf_pairwise_all_layers
+
     def crop(
         self,
         spec={"y": (23, 278), "x": (23, 278)},
@@ -799,8 +919,6 @@ class SegmentationMap:
             for _key in d[key].keys():
                 to_crop = np.asarray(self.seg_maps[key][_key][:])
                 d[key][_key] = np.asarray(tb.crop(to_crop, spec, size, center))
-
-        self.cropped = True
 
         return None
 
