@@ -85,6 +85,8 @@ def _fit_model(
     init=None,
     init_eps=None,
     spatial_smoothing=True,
+    layer_normalization=True,
+    reshape_deep_layers=True,
     deepnet="vgg19",
 ):
     """
@@ -256,6 +258,8 @@ def _fit_model(
             verbose=False,
             keep=keep,
             spatial_smoothing=spatial_smoothing,
+            layer_normalization=layer_normalization,
+            reshape_deep_layers=reshape_deep_layers,
         )
 
         if keep:
@@ -318,8 +322,6 @@ def _gen_seg_map(res, N_list, standard_size=True):
 def _reshape_model_weights(SM, layers_of_interest=None):
     d = SM.model_res
     SM.layers_of_interest = layers_of_interest
-    SM.model = list(SM.seg_maps.keys())[0]
-    SM.n_components = list(SM.seg_maps[SM.model].keys())[0]
     SM.pmaps = {}
     for key in d.keys():
         # self.seg_maps[key] = {}
