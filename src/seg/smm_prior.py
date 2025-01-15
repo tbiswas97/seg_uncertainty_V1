@@ -449,7 +449,7 @@ class SMM(sklearn.base.BaseEstimator):
         X,
         gt=None,
         gt_eps=None,
-        gt_partition=0,
+        gt_partition=1,
         n_components_best=None,
         use_kmeans=False,
     ):
@@ -480,6 +480,7 @@ class SMM(sklearn.base.BaseEstimator):
                     self.means_ = cluster_centers
                     assert self.means_.shape[0] == self.n_components
                 else:
+                    # TODO: fix this
                     self.means_ = np.mean(X.T)
                     assert self.means_.shape[0] == self.n_components
             else:
