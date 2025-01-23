@@ -554,10 +554,10 @@ class Session:
                     (df.neuron1_pos == "center") ^ (df.neuron2_pos == "center"),
                     "pair_orientation",
                 ] = 2
+
+                df.loc[df.pair_orientation == 0, "pair_orientation"] = "surround"
                 df.loc[df.pair_orientation == 1, "pair_orientation"] = "centered"
                 df.loc[df.pair_orientation == 2, "pair_orientation"] = "mixed"
-
-                df = df.loc[df.pair_orientation != 0]
 
             pair_idxs = get_pair_idx(df.pairs.values)
             counts = Counter(df.img_idx)
