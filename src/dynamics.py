@@ -94,6 +94,24 @@ def check_derivatives(index, d1, d2, epsilon=1):
 
 
 def find_pointwise_rt(coord, SegMap, kern_size=3, kld_tol=0.005, use_lkl=0.01):
+    """
+    find the pointwise reaction time proxy t_{pointwise} for a coordinate given
+    a segmentation map
+
+    Parameters:
+    ------------
+    coord : array
+        the coordinate of interest (in numpy coordinates)
+    SegMap : SegmentationMap object
+        SegmentationMap object with likelihood attributes
+    kern_size : int
+        the kernel size for *temporal* smoothing
+    kld_tol : float
+        the threshold where KLD(\vec{\pi_i^{(t)}}||\vec{\pi_i^{(t)}}) is
+        considered to have coverged
+    use_lkl : float, default None
+
+    """
 
     h, w = SegMap.im.shape[:2]
 
@@ -101,6 +119,7 @@ def find_pointwise_rt(coord, SegMap, kern_size=3, kld_tol=0.005, use_lkl=0.01):
         (np.array([coord[0]]), np.array([coord[1]])), (h, w)
     )
 
+    # kern size is kern_size minus 1 to ensure smooth_conv and smooth_lkl are the same shape
     smooth_conv = sliding_window_mean(
         point_convergence(coord, SegMap), kernel_size=kern_size - 1
     )
@@ -109,6 +128,7 @@ def find_pointwise_rt(coord, SegMap, kern_size=3, kld_tol=0.005, use_lkl=0.01):
         point_likelihood(coord, SegMap), kernel_size=kern_size
     )
 
+    # calculates the derivatives of the likelihood function
     d1 = sliding_window_deriv1(point_likelihood(coord, SegMap), kernel_size=kern_size)
 
     d2 = sliding_window_deriv2(point_likelihood(coord, SegMap), kernel_size=kern_size)
@@ -119,9 +139,11 @@ def find_pointwise_rt(coord, SegMap, kern_size=3, kld_tol=0.005, use_lkl=0.01):
 
     possible_ind = np.where(smooth_conv < kld_tol)[0]
 
+    # The total probability of all observations (pixels) belonging to the fit model
     total_proba = SegMap.model_fitted.score(SegMap.flat_pca).sum()
 
     if use_lkl is not None:
+        # default value for likelihood threshold is 1% of the total probability per pixel
         lkl_thresh = (use_lkl * total_proba) / (SegMap.im.size)
         out = -1
 
@@ -140,6 +162,7 @@ def find_pointwise_rt(coord, SegMap, kern_size=3, kld_tol=0.005, use_lkl=0.01):
         elif out == 0:
             out = 1
     else:
+        # if use_lkl is None then only use smooth_conv
         try:
             out = np.where(smooth_conv < kld_tol)[0][0]
         except:
@@ -149,6 +172,9 @@ def find_pointwise_rt(coord, SegMap, kern_size=3, kld_tol=0.005, use_lkl=0.01):
 
 
 def _get_psame_t(coord1, coord2, SegMap):
+    """
+    Calculates \pi_{ij}^{(t)}
+    """
 
     pmap = np.moveaxis(SegMap.weights_t, -1, 1)
 
@@ -164,6 +190,9 @@ def _get_psame_t(coord1, coord2, SegMap):
 
 
 def _get_seg_flag_t(coord1, coord2, SegMap):
+    """
+    Calculates f_{ij}^{(t)}
+    """
 
     pmap = np.moveaxis(SegMap.weights_t, -1, 1)
     n_iter = pmap.shape[0]
@@ -203,6 +232,9 @@ def _get_entropy(coord1, coord2, SegMap):
 
 
 def _get_evidence(coord1, coord2, SegMap, evidence_type="logit"):
+    """
+    Calculate E_{ij}^{(t)}
+    """
     if evidence_type == "logit":
         get_logit = lambda x: np.log(x) - np.log(1 - x)
 
@@ -214,9 +246,34 @@ def _get_evidence(coord1, coord2, SegMap, evidence_type="logit"):
 
 
 def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
+    """
+    Calculate decision reaction time from evidence and boundary
+
+    Parameters:
+    -----------
+    yes_no : str or None
+        "yes" : if decision is "yes" a priori then use the positive boundary
+        "no" : if decision is "no" a priori then use the negative boundary
+        None : if decision is not known a priori then use *either* boundary
+    evidence : array
+        logits per algorithm iteration
+    pointwise_rt : bool
+        if True, use the slowest pointwise reaction time if the pairwise time is
+        faster than either point
+    boundary : int
+        positive int, if yes_no is "no" then use the negative of boundary
+
+    Returns:
+    ---------
+    rt : int
+        The iteration where the evidence crosses the boundary
+    response : bool, None if yes_no is not None
+
+    """
     if boundary is not None:
         boundary = boundary
     else:
+        # default value for boundary
         boundary = 0.8 * np.max(evidence)
 
     if pointwise_rt is not None:
@@ -236,10 +293,20 @@ def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
             rt = len(evidence)
     else:
         try:
+            response = None
             if yes_no == "yes":
                 bound_idx = np.where(evidence > boundary)[0][0]
             elif yes_no == "no":
                 bound_idx = np.where(evidence < -boundary)[0][0]
+            elif yes_no == None:
+                bound_idx = np.where((evidence > boundary) | (evidence < -boundary))[0][
+                    0
+                ]
+                decision = evidence[bound_idx]
+                if decision > boundary:
+                    response = True
+                elif decision < -boundary:
+                    response = False
             rt = bound_idx
         except:
             rt = len(evidence)
@@ -247,4 +314,7 @@ def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
     if rt == 0:
         rt = 1
 
-    return rt
+    if response is not None:
+        return rt, response
+    else:
+        return rt
