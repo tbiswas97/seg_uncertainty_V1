@@ -284,6 +284,15 @@ def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
                 bound_idx = np.where(evidence > boundary)[0][0]
             elif yes_no == "no":
                 bound_idx = np.where(evidence < -boundary)[0][0]
+            elif yes_no == None:
+                bound_idx = np.where((evidence > boundary) | (evidence < -boundary))[0][
+                    0
+                ]
+                decision = evidence[bound_idx]
+                if decision > boundary:
+                    response = True
+                elif decision < -boundary:
+                    response = False
             if bound_idx < np.ceil(slow_point_idx):
                 rt = slow_point_idx
             else:
