@@ -1,3 +1,4 @@
+.DS*
 data
 .vscode
 *.txt
@@ -26,4 +27,5 @@ __pycache__/*
 *.pyc
 *.jpg
 *.pdf
+*debug*
 
