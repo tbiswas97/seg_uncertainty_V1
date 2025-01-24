@@ -244,6 +244,18 @@ class SegmentationMap:
         self.model_res : ndarray
             Model object defined in models_deep_seg.py
         self.seg_maps : dict
+        self.flat_weights : ndarray
+        self.weights_t : ndarray
+        self.segmapk : ndarray
+        self.means_t : ndarray
+        self.covars_t : ndarray
+        self.degrees_t : ndarray
+        self.responsibilites_t : ndarray
+        self.likelihoods : ndarray
+        self.flat_pca : ndarray
+        self.data_pca : ndarray
+        self.data : ndarray
+        self.model_fitted: model Object
         """
         if deepnet is not None:
             # only the first layer of AlexNet can be used
@@ -413,57 +425,24 @@ class SegmentationMap:
                     deepnet=deepnet,
                 )
         d = self.model_res
-
-        # CHANGED: used to build a nested dictionary in order to store data,
-        # now use seg.segment._reshape_model_weights() instead
-        # gen nested dictionary for seg maps
-        # for key in d.keys():
-        # self.seg_maps[key] = {}
-        # n = d[key].shape[1]
-
-        ## different values of i will have different n_components
-        # for i in range(n):
-        ## index 2 below is the index for the smm object
-        # smm = d[key][0, i, 2, 0]
-        # smm_last = d[key][-1, i, 2, 0]
-        # Ny, Nx = smm.im_shape
-        # _Ny, _Nx = smm_last.im_shape
-        # self.seg_maps[key][smm.n_components] = []
-        # layers = d[key][
-        # layer_start:layer_stop:layer_step, i, 2, 0
-        # ]  # generates seg map from every 4th layer
-
-        # for layer in layers:
-        # ny, nx = layer.im_shape
-        # smap = layer.weights_.argmax(1).reshape((ny, nx))
-
-        # if binning == True:
-        # smap = tb._bin(smap, binsize=(ny // _Ny, nx // _Nx))
-
-        # assert Ny // ny == Nx // nx
-
-        # m = Ny // ny
-        # smap = smap.repeat(m, 0).repeat(m, 1)
-
-        # else:
-        # if ny != Ny:
-        # assert Ny // ny == Nx // nx
-        # multiplier = Ny // ny
-        # m = multiplier
-        # smap = smap.repeat(m, 0).repeat(m, 1)
-
-        # self.seg_maps[key][smm.n_components].append(smap)
-
-        # if use_crop:
-        # self.c_seg_maps = self.seg_maps
-
         return None
 
     def parse_layer(self, layer):
+        """
+        Selects which layer in the model to parse output from
+        Parsing output means reshaping data per layer
+
+        Parameters:
+        -----------
+        layer : int
+            layers are 1-indexed
+        """
         assert layer > 0, "layers are 1-indexed"
         make_array = lambda x: np.asarray([item for item in x if type(item) != int])
+        # set layer of interest here
         self._res_iter = self.__res_iter[:, layer - 1, :, :]
         self.model_res["c"] = self._model_res["c"][layer - 1, ...]
+        # recalculate/reshape model outputs depending on layer
         weights = self._res_iter.T[0].squeeze()
         self.flat_weights = make_array(weights)
         self.weights_t = np.asarray(
@@ -503,9 +482,25 @@ class SegmentationMap:
         self, coords, shape=None, use_pseudocoords=None, sample_size=10
     ):
         """
-        coords : list to points to calculate rt at
-        shape :
+        Parameters:
+        ------------
+        coords : array like
+            list to points to calculate rt at
+        shape : int, default is None
+            shape of the final square map (int x int) (same as input image
+            shape) if None, assume shape = sqrt(coords)
+        use_pseudocoords : bool, default False
+            the radius of the window size defining the window from which
+            pseudcoords are drawn
+        sample_size : int
+            the number of pseudocoords being used
 
+        Returns:
+        ---------
+            self.pointwise_rts : array
+                flattened array of pointwise reaction times (t_{pointwise,i})
+            self.dynamic_map : array
+                reshaped square array
         """
         self.pseudocoords_sample_size = sample_size
         fpr = lambda x: dynamics.find_pointwise_rt(x, self)
@@ -521,6 +516,7 @@ class SegmentationMap:
             # window around points
             win = use_pseudocoords
 
+            # array of pseudocoord indices
             pseudocoords = np.zeros((len(coords), ((2 * win) ** 2) - 1, 2)).astype(
                 "int"
             )
@@ -531,24 +527,29 @@ class SegmentationMap:
                 ] = (i + 1)
                 canvas[coord[0], coord[1]] = -(i + 1)
 
+                # selects pseudocoords while EXCLUDING original coord
                 pseudocoords[i, ...] = np.argwhere(canvas == (i + 1)).astype("int")
 
+                # select a random number of pseudocoords within the window
                 samples = np.random.randint(0, (((2 * win) ** 2) - 1), size=sample_size)
 
                 mask = np.ones((((2 * win) ** 2) - 1), dtype="bool")
                 mask[samples] = False
-
                 pseudocoords[i, mask, ...] = -1
+                # Above, masks all pseudocoords except the sample
 
                 pseudorts[i, ...] = np.asarray(
                     [fpr(coord) for coord in pseudocoords[i, samples, ...]]
                 )
 
+            # self.pseudocoords is a 2d array of pseudocoords (cols) per true coord (index)
+            self.coords = coords
             self.pseudocoords = pseudocoords
             pseudorts_binned = np.mean(pseudorts, axis=1)
 
         rts = [dynamics.find_pointwise_rt(coord, self) for coord in coords]
 
+        # change the pseudcoord weights here
         if use_pseudocoords is not None:
             weight = 1 / (sample_size + 1)
             self.pointwise_rts = (
@@ -557,6 +558,7 @@ class SegmentationMap:
         else:
             self.pointwise_rts = np.asarray(rts)
 
+        # Reshape pointwise rts to a dynamic map
         self.dynamic_map = self.pointwise_rts.reshape((shape, shape))
 
         return self.pointwise_rts
@@ -688,6 +690,22 @@ class SegmentationMap:
         use_pseudocoords=None,
         boundary=None,
     ):
+        """
+        Returns pairwise decision times: $\hat{t}_p^*
+
+        Parameters:
+        ------------
+        points : array like
+            the set of grid points where pointwise rts will be calculated
+        pairs : array like
+            the set of pairs for which decisions exist
+        coords_idx :
+        kernel_size :
+        use_pointwise_rts : bool
+        use_pseudocoords :
+        boundary :
+
+        """
 
         coords = pairs
         if kernel_size is not None:
@@ -699,9 +717,11 @@ class SegmentationMap:
         if boundary is not None:
             boundary = boundary
         else:
+            # second boundary is negative
             boundary = [1, 2]
 
         if use_pseudocoords is not None:
+            # pseudocoords are created here
             self.get_dynamic_map(
                 points, use_pseudocoords=5, sample_size=use_pseudocoords
             )
