@@ -542,8 +542,8 @@ class SegmentationMap:
                     [fpr(coord) for coord in pseudocoords[i, samples, ...]]
                 )
 
-            # self.pseudocoords is a 2d array of pseudocoords (cols) per true coord (index)
             self.coords = coords
+            # self.pseudocoords is a 2d array of pseudocoords (cols) per true coord (index)
             self.pseudocoords = pseudocoords
             pseudorts_binned = np.mean(pseudorts, axis=1)
 
@@ -581,111 +581,11 @@ class SegmentationMap:
 
         return self.pseudologits
 
-    def _pairwise_kernel_smooth_vs_distance(
-        self, coords, coords_idx, kernel_size=10, use_pseudocoords=None
-    ):
-        distances = np.asarray(
-            [tb.euclidean_distance(coord[0], coord[1]) for coord in coords]
-        )
-        sfs_t = np.asarray(
-            [dynamics._get_seg_flag_t(coord[0], coord[1], self) for coord in coords]
-        )
-        logits = np.asarray(
-            [dynamics._get_evidence(coord[0], coord[1], self) for coord in coords]
-        )
-        if use_pseudocoords is not None:
-            pass
-            weight = 1 / (self.pseudocoords_sample_size - 1)
-            logits = weight * logits + (1 - weight) * self.pseudologits
-        else:
-            pass
-
-        sfs_t = sfs_t.astype("bool")
-
-        np_idxs = np.asarray(coords)
-
-        np_idx_y = np_idxs[sfs_t[:, -1]]
-        np_idx_n = np_idxs[~sfs_t[:, -1]]
-
-        master_idx = np.asarray(list(range(len(coords_idx))))
-
-        master_idx_y = master_idx[sfs_t[:, -1]]
-        master_idx_n = master_idx[~sfs_t[:, -1]]
-
-        coords_idx_y = coords_idx[sfs_t[:, -1]]
-        coords_idx_n = coords_idx[~sfs_t[:, -1]]
-
-        distances_y = distances[sfs_t[:, -1]]
-        logits_y = logits[sfs_t[:, -1]]
-
-        distances_n = distances[~sfs_t[:, -1]]
-        logits_n = logits[~sfs_t[:, -1]]
-
-        pairwise_rts = np.asarray(
-            [
-                np.array(
-                    [
-                        self.pointwise_rts[pair_idx[0] - 1],
-                        self.pointwise_rts[pair_idx[1] - 1],
-                    ]
-                )
-                for pair_idx in coords_idx
-            ]
-        )
-
-        rts_y = pairwise_rts[sfs_t[:, -1]]
-        rts_n = pairwise_rts[~sfs_t[:, -1]]
-
-        rts = {"y": rts_y, "n": rts_n}
-
-        distances = {"y": distances_y, "n": distances_n}
-        logits = {"y": logits_y, "n": logits_n}
-
-        if kernel_size is not None:
-            for condition in ["y", "n"]:
-                distances[condition + "s"] = np.asarray(
-                    [
-                        np.mean(temp)
-                        for temp in sliding_window_view(
-                            np.sort(distances[condition]), kernel_size
-                        )
-                    ]
-                )
-
-                logits[condition + "s"] = np.asarray(
-                    [
-                        np.mean(temp, axis=1)
-                        for temp in sliding_window_view(
-                            logits[condition][np.argsort(distances[condition])],
-                            kernel_size,
-                            axis=0,
-                        )
-                    ]
-                )
-                rts[condition + "s"] = np.asarray(
-                    [
-                        np.mean(temp, axis=1)
-                        for temp in sliding_window_view(
-                            rts[condition][np.argsort(distances[condition])],
-                            kernel_size,
-                            axis=0,
-                        )
-                    ]
-                )
-
-        self.pairwise_idxs = {"y": coords_idx_y, "n": coords_idx_n}
-        self.master_idxs = {"y": master_idx_y, "n": master_idx_n}
-        self.np_idxs = {"y": np_idx_y, "n": np_idx_n}
-        self.pairwise_distances = distances
-        self.pairwise_logits = logits
-        self.pairwise_rts = rts
-
     def get_decision_rts(
         self,
         points,
         pairs,
-        coords_idx,
-        kernel_size=10,
+        grids_idx,
         use_pointwise_rts=True,
         use_pseudocoords=None,
         boundary=None,
@@ -696,23 +596,21 @@ class SegmentationMap:
         Parameters:
         ------------
         points : array like
-            the set of grid points where pointwise rts will be calculated
+            the set of np coords where pointwise rts will be calculated
         pairs : array like
-            the set of pairs for which decisions exist
-        coords_idx :
-        kernel_size :
+            the set of pairs (ie pairs of np coords) for which decisions exist
+        grids_idx : array like
+            the grid index for each pair
         use_pointwise_rts : bool
-        use_pseudocoords :
+            reaction time is a function of pointwise and pairwise rts if True
+        use_pseudocoords : bool
+            use evidence calculated from pseudocoords as well
         boundary :
 
         """
 
         coords = pairs
-        if kernel_size is not None:
-            kernel_size = kernel_size
-            key = ["ys", "ns"]
-        else:
-            key = ["y", "n"]
+        grids_idx = grids_idx.astype("int")
 
         if boundary is not None:
             boundary = boundary
@@ -720,146 +618,89 @@ class SegmentationMap:
             # second boundary is negative
             boundary = [1, 2]
 
+        distances = np.asarray(
+            [tb.euclidean_distance(coord[0], coord[1]) for coord in coords]
+        )
+        psames_t = np.asarray(
+            [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
+        )
+        sfs_t = np.asarray(
+            [dynamics._get_seg_flag_t(coord[0], coord[1], self) for coord in coords]
+        )
+        logits = np.asarray(
+            [
+                dynamics._get_logit(coord[0], coord[1], psame_t)
+                for coord, psame_t in zip(coords, psames_t)
+            ]
+        )
+
         if use_pseudocoords is not None:
-            # pseudocoords are created here
+            # self.pseudocoords and self.coords created here
+            # default window size of 5
             self.get_dynamic_map(
                 points, use_pseudocoords=5, sample_size=use_pseudocoords
             )
 
-            self._pseudo_logits(coords_idx)
-
-            self._pairwise_kernel_smooth_vs_distance(
-                coords, coords_idx, kernel_size, use_pseudocoords=True
-            )
-
-            pairwise_decision_rts_y = np.asarray(
+            pointwise_rt_pairs = np.asarray(
                 [
-                    dynamics._get_decision_rt(
-                        "yes", evidence, pointwise_rt=temp, boundary=boundary[0]
+                    np.array(
+                        [
+                            self.pointwise_rts[grid_idx[0] - 1],
+                            self.pointwise_rts[grid_idx[1] - 1],
+                        ]
                     )
-                    for evidence, temp in zip(
-                        self.pairwise_logits["y"], self.pairwise_rts["y"]
-                    )
+                    for grid_idx in grids_idx
                 ]
             )
 
-            pairwise_decision_rts_n = np.asarray(
-                [
-                    dynamics._get_decision_rt(
-                        "no", evidence, pointwise_rt=temp, boundary=boundary[1]
-                    )
-                    for evidence, temp in zip(
-                        self.pairwise_logits["n"], self.pairwise_rts["n"]
-                    )
-                ]
-            )
+            self._pseudo_logits(grids_idx)
 
-            self.pairwise_decision_rts = {
-                "y": pairwise_decision_rts_y,
-                "n": pairwise_decision_rts_n,
-            }
-
-            boolean_decision = lambda x: 1 if x == "y" else 0
-
-            dfs = []
-            for _key in ["y", "n"]:
-                d = {
-                    "pair_idx": [idx for idx in self.master_idxs[_key]],
-                    "grid_idx_0": [
-                        grid_idx[0] for grid_idx in self.pairwise_idxs[_key]
-                    ],
-                    "grid_idx_1": [
-                        grid_idx[1] for grid_idx in self.pairwise_idxs[_key]
-                    ],
-                    "np_idx_0": [np_idx[0] for np_idx in self.np_idxs[_key]],
-                    "np_idx_1": [np_idx[1] for np_idx in self.np_idxs[_key]],
-                    "image_distance": [dist for dist in self.pairwise_distances[_key]],
-                    "model_rt": [rt for rt in self.pairwise_decision_rts[_key]],
-                    "model_decision": [boolean_decision(_key)]
-                    * len(self.master_idxs[_key]),
-                    "layer": [self.active_layer] * len(self.master_idxs[_key]),
-                }
-
-                df = pd.DataFrame.from_dict(d)
-                dfs.append(df)
-
-            self.dynamics_df_pairwise = pd.concat(dfs, ignore_index=True)
         else:
             self.get_dynamic_map(points)
 
-            self._pairwise_kernel_smooth_vs_distance(
-                coords,
-                coords_idx,
-                kernel_size,
-            )
-
-        if use_pointwise_rts:
-            decision_rts_y = np.asarray(
-                [
-                    dynamics._get_decision_rt(
-                        "yes", evidence, pointwise_rt=temp, boundary=boundary[0]
-                    )
-                    for evidence, temp in zip(
-                        self.pairwise_logits[key[0]], self.pairwise_rts[key[0]]
-                    )
-                ]
-            )
-
-            decision_rts_n = np.asarray(
-                [
-                    dynamics._get_decision_rt(
-                        "no", evidence, pointwise_rt=temp, boundary=boundary[1]
-                    )
-                    for evidence, temp in zip(
-                        self.pairwise_logits[key[1]], self.pairwise_rts[key[1]]
-                    )
-                ]
-            )
+        if use_pointwise_rts is not None:
+            rts = [
+                dynamics._get_decision_rt(
+                    None, evidence, pointwise_rt=temp, boundary=boundary[0]
+                )[0]
+                for evidence, temp in zip(logits, pointwise_rt_pairs)
+            ]
         else:
-            decision_rts_y = np.asarray(
-                [
-                    dynamics._get_decision_rt(
-                        "yes", evidence, pointwise_rt=None, boundary=boundary[0]
-                    )
-                    for evidence, temp in zip(
-                        self.pairwise_logits[key[0]], self.pairwise_rts[key[0]]
-                    )
-                ]
-            )
+            rts = [
+                dynamics._get_decision_rt(
+                    None, evidence, pointwise_rt=None, boundary=boundary[0]
+                )[0]
+                for evidence in logits
+            ]
 
-            decision_rts_n = np.asarray(
-                [
-                    dynamics._get_decision_rt(
-                        "no", evidence, pointwise_rt=None, boundary=boundary[1]
-                    )
-                    for evidence, temp in zip(
-                        self.pairwise_logits[key[1]], self.pairwise_rts[key[1]]
-                    )
-                ]
-            )
+        responses = [
+            dynamics._get_decision_rt(
+                None, evidence, pointwise_rt=None, boundary=boundary[0]
+            )[1]
+            for evidence in logits
+        ]
 
-        self.decision_rts = {"y": decision_rts_y, "n": decision_rts_n}
+        d = {}
 
-        if kernel_size is not None:
-            d = {
-                "rt": [item for item in self.decision_rts["y"]]
-                + [item for item in self.decision_rts["n"]],
-                "distance": [item for item in self.pairwise_distances["ys"]]
-                + [item for item in self.pairwise_distances["ns"]],
-                "seg_flag": [1 for item in self.decision_rts["y"]]
-                + [0 for item in self.decision_rts["n"]],
-            }
+        # CREATE DF FROM PARAMETERS
+        d["pair_idx"] = list(range(len(grids_idx)))
+        d["grid_idx_0"] = [item[0] for item in grids_idx]
+        d["grid_idx_1"] = [item[1] for item in grids_idx]
+        d["np_idx_0"] = [item[0] for item in pairs]
+        d["np_idx_1"] = [item[1] for item in pairs]
+        d["image_distance"] = distances
+        d["psame_rt"] = [
+            item[int(rts[i])] if rts[i] != len(item) else item[-1]
+            for i, item in enumerate(psames_t)
+        ]
+        d["psame_final"] = [item[-1] for item in psames_t]
+        d["model_rt"] = rts
+        d["response"] = responses
+        d["seg_flag"] = list(sfs_t[:, -1])
 
-            self.dynamics_df_distance = pd.DataFrame.from_dict(d)
-        else:
-            d = {
-                "rt": [item for item in self.decision_rts["y"]]
-                + [item for item in self.decision_rts["n"]],
-                "distance": [item for item in self.pairwise_distances["y"]]
-                + [item for item in self.pairwise_distances["n"]],
-                "seg_flag": [1 for item in self.decision_rts["y"]]
-                + [0 for item in self.decision_rts["n"]],
-            }
+        df = pd.DataFrame.from_dict(d)
+
+        return df
 
     def get_decision_rts_layers(
         self,
