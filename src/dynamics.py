@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.stats import entropy
+from matplotlib import pyplot as plt
 from numpy.lib.stride_tricks import sliding_window_view
 
 
@@ -231,16 +232,21 @@ def _get_entropy(coord1, coord2, SegMap):
     return entropy(psame_t[..., np.newaxis], axis=1)
 
 
-def _get_evidence(coord1, coord2, SegMap, evidence_type="logit"):
+def _get_logit(coord1, coord2, psame_t, evidence_type="logit"):
     """
     Calculate E_{ij}^{(t)}
+
+    Parameters:
+    ------------
+    coord1 : array like using np coordinates
+    coord2 : array like using np coordinates
+    psame_t : array like
+    evidence_type : string
     """
     if evidence_type == "logit":
         get_logit = lambda x: np.log(x) - np.log(1 - x)
 
-        psame = _get_psame_t(coord1, coord2, SegMap)
-        sf_t = _get_seg_flag_t(coord1, coord2, SegMap)
-        logit = get_logit(psame)
+        logit = get_logit(psame_t)
 
         return logit
 
@@ -262,6 +268,7 @@ def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
         faster than either point
     boundary : int
         positive int, if yes_no is "no" then use the negative of boundary
+        #TODO: change this later to handle asymmetric boundaries
 
     Returns:
     ---------
@@ -276,6 +283,8 @@ def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
         # default value for boundary
         boundary = 0.8 * np.max(evidence)
 
+    response = None
+
     if pointwise_rt is not None:
         slow_point = np.max(pointwise_rt)
         slow_point_idx = np.ceil(slow_point).astype("int")
@@ -285,9 +294,9 @@ def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
             elif yes_no == "no":
                 bound_idx = np.where(evidence < -boundary)[0][0]
             elif yes_no == None:
-                bound_idx = np.where((evidence > boundary) | (evidence < -boundary))[0][
-                    0
-                ]
+                bound_idx = np.where(
+                    (evidence > boundary[0]) | (evidence < boundary[-1])
+                )[0][0]
                 decision = evidence[bound_idx]
                 if decision > boundary:
                     response = True
@@ -302,7 +311,6 @@ def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
             rt = len(evidence)
     else:
         try:
-            response = None
             if yes_no == "yes":
                 bound_idx = np.where(evidence > boundary)[0][0]
             elif yes_no == "no":
@@ -326,4 +334,35 @@ def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
     if response is not None:
         return rt, response
     else:
-        return rt
+        return rt, np.nan
+
+
+def df_to_rt_vs_distance(df, rt_col="model_rt", kernel_size=10, groupby="seg_flag"):
+    dist_y = (
+        df.sort_values("image_distance")
+        .loc[(df[groupby] == True), "image_distance"]
+        .values
+    )
+    rt_y = df.sort_values("image_distance").loc[(df[groupby] == True), rt_col].values
+    dist_n = (
+        df.sort_values("image_distance")
+        .loc[(df[groupby] == False), "image_distance"]
+        .values
+    )
+    rt_n = df.sort_values("image_distance").loc[(df[groupby] == False), rt_col].values
+
+    dist_smooth_y = [np.mean(_bin) for _bin in sliding_window_view(dist_y, kernel_size)]
+    rt_smooth_y = [np.mean(_bin) for _bin in sliding_window_view(rt_y, kernel_size)]
+
+    dist_smooth_n = [np.mean(_bin) for _bin in sliding_window_view(dist_n, kernel_size)]
+    rt_smooth_n = [np.mean(_bin) for _bin in sliding_window_view(rt_n, kernel_size)]
+
+    d = {}
+
+    d["plot_yes"] = (dist_smooth_y, rt_smooth_y)
+    d["plot_no"] = (dist_smooth_n, rt_smooth_n)
+
+    plt.plot(d["plot_yes"][0], d["plot_yes"][1])
+    plt.plot(d["plot_no"][0], d["plot_no"][1])
+
+    return d
