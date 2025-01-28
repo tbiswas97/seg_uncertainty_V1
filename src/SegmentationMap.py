@@ -8,6 +8,7 @@ import seaborn as sns
 import seg.segment as seg
 import dynamics as dynamics
 from numpy.lib.stride_tricks import sliding_window_view
+from numpy.random import default_rng
 
 # import analysis.dynamics as dynamics
 from itertools import combinations
@@ -502,75 +503,102 @@ class SegmentationMap:
             self.dynamic_map : array
                 reshaped square array
         """
-        self.pseudocoords_sample_size = sample_size
         fpr = lambda x: dynamics.find_pointwise_rt(x, self)
 
+        self.coords = coords
         if shape is not None:
             shape = shape
         else:
             shape = int(np.sqrt(len(coords)))
         # use pseudocoords for binning:
         if use_pseudocoords is not None:
-            canvas = np.zeros(self.im.shape[:-1])
+            self.pseudocoords_sample_size = sample_size
+            canvas = np.zeros(self.im.shape[:-1]).astype("int")
 
             # window around points
             win = use_pseudocoords
 
             # array of pseudocoord indices
-            pseudocoords = np.zeros((len(coords), ((2 * win) ** 2) - 1, 2)).astype(
-                "int"
-            )
+            all_pseudocoords = np.zeros((len(coords), ((2 * win) ** 2) - 1, 2), "int")
+            pseudocoords = np.zeros((len(coords), sample_size, 2), dtype="int")
             pseudorts = np.zeros((len(coords), sample_size))
             for i, coord in enumerate(coords):
+                # HANDLE EDGE OF ARRAY CASES
+                _win = [win, win]
+                if coord[0] - win < 0:
+                    _win[0] = coord[0]
+                elif coord[0] + win > self.im.shape[0]:
+                    _win[0] = self.im.shape[0] - coord[0]
+                else:
+                    _win[0] = win
+                if coord[1] - win < 0:
+                    _win[1] = coord[1]
+                elif coord[1] + win > self.im.shape[1]:
+                    _win[1] = self.im.shape[1] - coord[1]
+                else:
+                    _win[1] = win
+
                 canvas[
-                    coord[0] - win : coord[0] + win, coord[1] - win : coord[1] + win
-                ] = (i + 1)
+                    coord[0] - _win[0] : coord[0] + _win[0],
+                    coord[1] - _win[1] : coord[1] + _win[1],
+                ] = (
+                    i + 1
+                )
                 canvas[coord[0], coord[1]] = -(i + 1)
 
                 # selects pseudocoords while EXCLUDING original coord
-                pseudocoords[i, ...] = np.argwhere(canvas == (i + 1)).astype("int")
+
+                in_window = np.argwhere(canvas == (i + 1)).astype("int")
+
+                all_pseudocoords[i, : len(in_window), :] = in_window
 
                 # select a random number of pseudocoords within the window
-                samples = np.random.randint(0, (((2 * win) ** 2) - 1), size=sample_size)
+                rng = default_rng()
+                samples = rng.choice(len(in_window), size=sample_size, replace=False)
 
-                mask = np.ones((((2 * win) ** 2) - 1), dtype="bool")
-                mask[samples] = False
-                pseudocoords[i, mask, ...] = -1
-                # Above, masks all pseudocoords except the sample
+                pseudocoords[i, ...] = all_pseudocoords[i, samples, :]
 
-                pseudorts[i, ...] = np.asarray(
-                    [fpr(coord) for coord in pseudocoords[i, samples, ...]]
-                )
-
-            self.coords = coords
             # self.pseudocoords is a 2d array of pseudocoords (cols) per true coord (index)
             self.pseudocoords = pseudocoords
-            pseudorts_binned = np.mean(pseudorts, axis=1)
 
-        rts = [dynamics.find_pointwise_rt(coord, self) for coord in coords]
+            print("Starting pseudo_pointwise")
+            self.pseudo_pointwise_rts = np.asarray([
+                dynamics.find_pointwise_rt(coord,self) for coord in pseudocoords.reshape((-1,2))
+            ]).reshape(pseudocoords.shape[:-1])
 
-        # change the pseudcoord weights here
+                
+
+            # pseudorts_binned = np.mean(pseudorts, axis=1)
+
+        self.pointwise_rts = np.asarray(
+            [dynamics.find_pointwise_rt(coord, self) for coord in coords]
+        )
+
         if use_pseudocoords is not None:
-            weight = 1 / (sample_size + 1)
-            self.pointwise_rts = (
-                weight * np.asarray(rts) + (1 - weight) * pseudorts_binned
-            )
-        else:
-            self.pointwise_rts = np.asarray(rts)
+            self.pointwise_rts = (1/sample_size)*self.pointwise_rts + \
+            ((sample_size-1)/sample_size)*np.mean(self.pseudo_pointwise_rts,axis=1)
+
+
+        ## change the pseudcoord weights here
+        # if use_pseudocoords is not None:
+        # self.pseudo_pointwise_rts
+        # else:
+        # self.pointwise_rts = np.asarray(rts)
 
         # Reshape pointwise rts to a dynamic map
         self.dynamic_map = self.pointwise_rts.reshape((shape, shape))
 
         return self.pointwise_rts
 
-    def _pseudo_logits(self, coords_idx):
+    def _pseudo_logits(self, pair_idx, grid_idx):
 
+        d = {}
+        d["pair_idx"] = 0
         pseudologits = []
-        get_pos = lambda x: x[x > 0].reshape((-1, 2))
 
         for coord in coords_idx:
-            neigh_a = get_pos(self.pseudocoords[coord[0] - 1])
-            neigh_b = get_pos(self.pseudocoords[coord[1] - 1])
+            neigh_a = self.pseudocoords[coord[0] - 1]
+            neigh_b = self.pseudocoords[coord[1] - 1]
             all_pairs = [[a, b] for a in neigh_a for b in neigh_b]
             logits = np.asarray(
                 [dynamics._get_evidence(pair[0], pair[1], self) for pair in all_pairs]
@@ -600,7 +628,7 @@ class SegmentationMap:
         pairs : array like
             the set of pairs (ie pairs of np coords) for which decisions exist
         grids_idx : array like
-            the grid index for each pair
+            the grid index for each pair, 1-indexed, not 0!
         use_pointwise_rts : bool
             reaction time is a function of pointwise and pairwise rts if True
         use_pseudocoords : bool
@@ -611,6 +639,7 @@ class SegmentationMap:
 
         coords = pairs
         grids_idx = grids_idx.astype("int")
+        self.grids_idx = grids_idx
 
         if boundary is not None:
             boundary = boundary
@@ -638,40 +667,20 @@ class SegmentationMap:
             # self.pseudocoords and self.coords created here
             # default window size of 5
             self.get_dynamic_map(
-                points, use_pseudocoords=5, sample_size=use_pseudocoords
+                points, use_pseudocoords=10, sample_size=use_pseudocoords
             )
 
-            pointwise_rt_pairs = np.asarray(
-                [
-                    np.array(
-                        [
-                            self.pointwise_rts[grid_idx[0] - 1],
-                            self.pointwise_rts[grid_idx[1] - 1],
-                        ]
-                    )
-                    for grid_idx in grids_idx
-                ]
-            )
-
-            self._pseudo_logits(grids_idx)
+            self._pseudo_logits(pair_idx, grids_idx)
 
         else:
             self.get_dynamic_map(points)
 
-        if use_pointwise_rts is not None:
-            rts = [
-                dynamics._get_decision_rt(
-                    None, evidence, pointwise_rt=temp, boundary=boundary[0]
-                )[0]
-                for evidence, temp in zip(logits, pointwise_rt_pairs)
-            ]
-        else:
-            rts = [
-                dynamics._get_decision_rt(
-                    None, evidence, pointwise_rt=None, boundary=boundary[0]
-                )[0]
-                for evidence in logits
-            ]
+        rts = [
+            dynamics._get_decision_rt(
+                None, evidence, pointwise_rt=None, boundary=boundary[0]
+            )[0]
+            for evidence in logits
+        ]
 
         responses = [
             dynamics._get_decision_rt(
@@ -681,11 +690,15 @@ class SegmentationMap:
         ]
 
         d = {}
-
         # CREATE DF FROM PARAMETERS
+        if use_pseudocoords is not None:
+            d["pseudo"] = [0] * len(grids_idx)
         d["pair_idx"] = list(range(len(grids_idx)))
         d["grid_idx_0"] = [item[0] for item in grids_idx]
         d["grid_idx_1"] = [item[1] for item in grids_idx]
+        if use_pointwise_rts is not None:
+            d["pointwise_rt_0"] = [self.pointwise_rts[idx - 1] for idx, _ in grids_idx]
+            d["pointwise_rt_1"] = [self.pointwise_rts[idx - 1] for _, idx in grids_idx]
         d["np_idx_0"] = [item[0] for item in pairs]
         d["np_idx_1"] = [item[1] for item in pairs]
         d["image_distance"] = distances
