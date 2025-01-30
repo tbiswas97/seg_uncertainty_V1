@@ -478,6 +478,67 @@ class SegmentationMap:
         self.model_fitted = self.model_res["c"].squeeze()[2]
         self.active_layer = layer
 
+    def _get_collapsing_bounds(self, boundary):
+        shape = self.likelihoods.mean(axis=1)
+        shape = shape / shape.max()
+        multiplier = boundary[0] - boundary[1]
+
+        upper_bound = boundary[0] - (multiplier * shape)
+        lower_bound = -upper_bound
+
+        return [upper_bound, lower_bound]
+
+    def _create_pseudocoords(self, coords, window=10, sample_size=10):
+        self.pseudocoords_sample_size = sample_size
+        self.pseudocoords_sample_size = sample_size
+        canvas = np.zeros(self.im.shape[:-1]).astype("int")
+
+        # window around points
+        win = window
+
+        # array of pseudocoord indices
+        all_pseudocoords = np.zeros((len(coords), ((2 * win) ** 2) - 1, 2), "int")
+        pseudocoords = np.zeros((len(coords), sample_size, 2), dtype="int")
+        pseudorts = np.zeros((len(coords), sample_size))
+        for i, coord in enumerate(coords):
+            # HANDLE EDGE OF ARRAY CASES
+            _win = [win, win]
+            if coord[0] - win < 0:
+                _win[0] = coord[0]
+            elif coord[0] + win > self.im.shape[0]:
+                _win[0] = self.im.shape[0] - coord[0]
+            else:
+                _win[0] = win
+            if coord[1] - win < 0:
+                _win[1] = coord[1]
+            elif coord[1] + win > self.im.shape[1]:
+                _win[1] = self.im.shape[1] - coord[1]
+            else:
+                _win[1] = win
+
+            canvas[
+                coord[0] - _win[0] : coord[0] + _win[0],
+                coord[1] - _win[1] : coord[1] + _win[1],
+            ] = (
+                i + 1
+            )
+            canvas[coord[0], coord[1]] = -(i + 1)
+
+            # selects pseudocoords while EXCLUDING original coord
+
+            in_window = np.argwhere(canvas == (i + 1)).astype("int")
+
+            all_pseudocoords[i, : len(in_window), :] = in_window
+
+            # select a random number of pseudocoords within the window
+            rng = default_rng()
+            samples = rng.choice(len(in_window), size=sample_size, replace=False)
+
+            pseudocoords[i, ...] = all_pseudocoords[i, samples, :]
+
+        # self.pseudocoords is a 2d array of pseudocoords (cols) per true coord (index)
+        self.pseudocoords = pseudocoords
+
     # TODO: changed use_pseudocoords variable name to reflect that it is a window size
     def get_dynamic_map(
         self, coords, shape=None, use_pseudocoords=None, sample_size=10
@@ -489,7 +550,7 @@ class SegmentationMap:
             list to points to calculate rt at
         shape : int, default is None
             shape of the final square map (int x int) (same as input image
-            shape) if None, assume shape = sqrt(coords)
+            shape) if None, assume shape = sqrt(len(coords))
         use_pseudocoords : bool, default False
             the radius of the window size defining the window from which
             pseudcoords are drawn
@@ -512,61 +573,13 @@ class SegmentationMap:
             shape = int(np.sqrt(len(coords)))
         # use pseudocoords for binning:
         if use_pseudocoords is not None:
-            self.pseudocoords_sample_size = sample_size
-            canvas = np.zeros(self.im.shape[:-1]).astype("int")
 
-            # window around points
-            win = use_pseudocoords
-
-            # array of pseudocoord indices
-            all_pseudocoords = np.zeros((len(coords), ((2 * win) ** 2) - 1, 2), "int")
-            pseudocoords = np.zeros((len(coords), sample_size, 2), dtype="int")
-            pseudorts = np.zeros((len(coords), sample_size))
-            for i, coord in enumerate(coords):
-                # HANDLE EDGE OF ARRAY CASES
-                _win = [win, win]
-                if coord[0] - win < 0:
-                    _win[0] = coord[0]
-                elif coord[0] + win > self.im.shape[0]:
-                    _win[0] = self.im.shape[0] - coord[0]
-                else:
-                    _win[0] = win
-                if coord[1] - win < 0:
-                    _win[1] = coord[1]
-                elif coord[1] + win > self.im.shape[1]:
-                    _win[1] = self.im.shape[1] - coord[1]
-                else:
-                    _win[1] = win
-
-                canvas[
-                    coord[0] - _win[0] : coord[0] + _win[0],
-                    coord[1] - _win[1] : coord[1] + _win[1],
-                ] = (
-                    i + 1
-                )
-                canvas[coord[0], coord[1]] = -(i + 1)
-
-                # selects pseudocoords while EXCLUDING original coord
-
-                in_window = np.argwhere(canvas == (i + 1)).astype("int")
-
-                all_pseudocoords[i, : len(in_window), :] = in_window
-
-                # select a random number of pseudocoords within the window
-                rng = default_rng()
-                samples = rng.choice(len(in_window), size=sample_size, replace=False)
-
-                pseudocoords[i, ...] = all_pseudocoords[i, samples, :]
-
-            # self.pseudocoords is a 2d array of pseudocoords (cols) per true coord (index)
-            self.pseudocoords = pseudocoords
-
-            print("Starting pseudo_pointwise")
-            self.pseudo_pointwise_rts = np.asarray([
-                dynamics.find_pointwise_rt(coord,self) for coord in pseudocoords.reshape((-1,2))
-            ]).reshape(pseudocoords.shape[:-1])
-
-                
+            self.pseudo_pointwise_rts = np.asarray(
+                [
+                    dynamics.find_pointwise_rt(coord, self)
+                    for coord in self.pseudocoords.reshape((-1, 2))
+                ]
+            ).reshape(self.pseudocoords.shape[:-1])
 
             # pseudorts_binned = np.mean(pseudorts, axis=1)
 
@@ -575,39 +588,103 @@ class SegmentationMap:
         )
 
         if use_pseudocoords is not None:
-            self.pointwise_rts = (1/sample_size)*self.pointwise_rts + \
-            ((sample_size-1)/sample_size)*np.mean(self.pseudo_pointwise_rts,axis=1)
-
-
-        ## change the pseudcoord weights here
-        # if use_pseudocoords is not None:
-        # self.pseudo_pointwise_rts
-        # else:
-        # self.pointwise_rts = np.asarray(rts)
+            temp_avg = (1 / sample_size) * self.pointwise_rts + (
+                (sample_size - 1) / sample_size
+            ) * np.mean(self.pseudo_pointwise_rts, axis=1)
 
         # Reshape pointwise rts to a dynamic map
-        self.dynamic_map = self.pointwise_rts.reshape((shape, shape))
+        self.dynamic_map = temp_avg.reshape((shape, shape))
 
         return self.pointwise_rts
 
-    def _pseudo_logits(self, pair_idx, grid_idx):
-
+    def _process_pseudocoords(self, pair_idx, grids_idx, use_pointwise_rts=True):
         d = {}
-        d["pair_idx"] = 0
-        pseudologits = []
+        assert hasattr(self, "pseudocoords")
 
-        for coord in coords_idx:
-            neigh_a = self.pseudocoords[coord[0] - 1]
-            neigh_b = self.pseudocoords[coord[1] - 1]
-            all_pairs = [[a, b] for a in neigh_a for b in neigh_b]
-            logits = np.asarray(
-                [dynamics._get_evidence(pair[0], pair[1], self) for pair in all_pairs]
+        neigh_a = self.pseudocoords[grids_idx[0] - 1]
+        neigh_b = self.pseudocoords[grids_idx[1] - 1]
+        all_pairs = np.asarray([[a, b] for a in neigh_a for b in neigh_b])
+
+        if use_pointwise_rts is not None:
+            pointwise_rts_a = self.pseudo_pointwise_rts[grids_idx[0] - 1]
+            pointwise_rts_b = self.pseudo_pointwise_rts[grids_idx[1] - 1]
+            all_pointwise_rt_pairs = np.asarray(
+                [[a, b] for a in pointwise_rts_a for b in pointwise_rts_b]
             )
-            pseudologits.append(np.mean(logits, axis=0))
 
-        self.pseudologits = np.asarray(pseudologits)
+        psames_t = np.asarray(
+            [dynamics._get_psame_t(pair[0], pair[1], self) for pair in all_pairs]
+        )
+        sfs_t = np.asarray(
+            [dynamics._get_seg_flag_t(pair[0], pair[1], self) for pair in all_pairs]
+        )
+        logits = np.asarray(
+            [
+                dynamics._get_logit(pair[0], pair[1], psame_t)
+                for pair, psame_t in zip(all_pairs, psames_t)
+            ]
+        )
 
-        return self.pseudologits
+        rts = [
+            dynamics._get_decision_rt(evidence, boundary=self.boundary)[0]
+            for evidence in logits
+        ]
+
+        responses = [
+            dynamics._get_decision_rt(evidence, boundary=self.boundary)[1]
+            for evidence in logits
+        ]
+
+        d["pseudo"] = list(range(1, len(all_pairs) + 1))
+        d["pair_idx"] = [pair_idx] * len(all_pairs)
+        d["grid_idx_0"] = [grids_idx[0]] * len(all_pairs)
+        d["grid_idx_1"] = [grids_idx[1]] * len(all_pairs)
+        if use_pointwise_rts is not None:
+            d["pointwise_rt_0"] = [
+                all_pointwise_rt_pairs[i, 0] for i in range(len(all_pairs))
+            ]
+            d["pointwise_rt_1"] = [
+                all_pointwise_rt_pairs[i, 1] for i in range(len(all_pairs))
+            ]
+        d["np_idx_0"] = [all_pairs[i, 0] for i in range(len(all_pairs))]
+        d["np_idx_1"] = [all_pairs[i, 1] for i in range(len(all_pairs))]
+        d["image_distance"] = [
+            tb.euclidean_distance(all_pairs[i, 0], all_pairs[i, 1])
+            for i in range(len(all_pairs))
+        ]
+        d["psame_rt"] = [
+            item[int(rts[i])] if rts[i] != len(item) else item[-1]
+            for i, item in enumerate(psames_t)
+        ]
+        d["psame_final"] = [item[-1] for item in psames_t]
+        d["online_rt"] = rts
+        d["online_response"] = responses
+        d["rt_avg"] = rts
+        d["response_avg"] = responses
+        d["seg_flag"] = list(sfs_t[:, -1])
+
+        df = pd.DataFrame.from_dict(d)
+
+        return df, logits
+
+    # def _pseudo_logits(self, pair_idx, grid_idx):
+
+    # d = {}
+    # d["pair_idx"] = 0
+    # pseudologits = []
+
+    # for coord in coords_idx:
+    # neigh_a = self.pseudocoords[coord[0] - 1]
+    # neigh_b = self.pseudocoords[coord[1] - 1]
+    # all_pairs = [[a, b] for a in neigh_a for b in neigh_b]
+    # logits = np.asarray(
+    # [dynamics._get_evidence(pair[0], pair[1], self) for pair in all_pairs]
+    # )
+    # pseudologits.append(np.mean(logits, axis=0))
+
+    # self.pseudologits = np.asarray(pseudologits)
+
+    # return self.pseudologits
 
     def get_decision_rts(
         self,
@@ -616,7 +693,7 @@ class SegmentationMap:
         grids_idx,
         use_pointwise_rts=True,
         use_pseudocoords=None,
-        boundary=None,
+        boundary={"constant": [1, -1]},
     ):
         """
         Returns pairwise decision times: $\hat{t}_p^*
@@ -627,14 +704,16 @@ class SegmentationMap:
             the set of np coords where pointwise rts will be calculated
         pairs : array like
             the set of pairs (ie pairs of np coords) for which decisions exist
+            a subset of all possible pairs
         grids_idx : array like
             the grid index for each pair, 1-indexed, not 0!
         use_pointwise_rts : bool
-            reaction time is a function of pointwise and pairwise rts if True
+            calculates pointwise rts if true
         use_pseudocoords : bool
             use evidence calculated from pseudocoords as well
-        boundary :
-
+        boundary : dict {str:list}
+            "const" : uses a constant bound positive bound first in list then negative
+            "collapsing" : uses a collapsing bound based on model likelihood
         """
 
         coords = pairs
@@ -642,10 +721,15 @@ class SegmentationMap:
         self.grids_idx = grids_idx
 
         if boundary is not None:
-            boundary = boundary
+            assert type(boundary) == dict
+            if list(boundary.keys())[0] == "const":
+                boundary = boundary["const"]
+            elif list(boundary.keys())[0] == "collapsing":
+                boundary = self._get_collapsing_bounds(boundary["collapsing"])
         else:
-            # second boundary is negative
-            boundary = [1, 2]
+            boundary = [-1, 1]
+
+        self.boundary = boundary
 
         distances = np.asarray(
             [tb.euclidean_distance(coord[0], coord[1]) for coord in coords]
@@ -656,7 +740,7 @@ class SegmentationMap:
         sfs_t = np.asarray(
             [dynamics._get_seg_flag_t(coord[0], coord[1], self) for coord in coords]
         )
-        logits = np.asarray(
+        self.logits = np.asarray(
             [
                 dynamics._get_logit(coord[0], coord[1], psame_t)
                 for coord, psame_t in zip(coords, psames_t)
@@ -666,27 +750,63 @@ class SegmentationMap:
         if use_pseudocoords is not None:
             # self.pseudocoords and self.coords created here
             # default window size of 5
-            self.get_dynamic_map(
-                points, use_pseudocoords=10, sample_size=use_pseudocoords
+            self._create_pseudocoords(points, sample_size=use_pseudocoords)
+
+            if use_pointwise_rts is not None:
+                self.get_dynamic_map(
+                    points, use_pseudocoords=10, sample_size=use_pseudocoords
+                )
+
+            self.pseudo_df = pd.concat(
+                [
+                    self._process_pseudocoords(
+                        i, grids_idx[i], use_pointwise_rts=use_pointwise_rts
+                    )[0]
+                    for i in range(len(grids_idx))
+                ],
+                ignore_index=True,
             )
 
-            self._pseudo_logits(pair_idx, grids_idx)
+            self.pseudo_logits = np.asarray(
+                [
+                    self._process_pseudocoords(
+                        i, grids_idx[i], use_pointwise_rts=use_pointwise_rts
+                    )[1]
+                    for i in range(len(grids_idx))
+                ]
+            )
+
+            mean_logits = (
+                (self.pseudocoords_sample_size - 1) / self.pseudocoords_sample_size
+            ) * np.mean(self.pseudo_logits, axis=1) + (
+                1 / self.pseudocoords_sample_size
+            ) * self.logits
+
+            self.mean_logits = mean_logits
 
         else:
-            self.get_dynamic_map(points)
+            if use_pointwise_rts is not None:
+                self.get_dynamic_map(points)
 
         rts = [
-            dynamics._get_decision_rt(
-                None, evidence, pointwise_rt=None, boundary=boundary[0]
-            )[0]
-            for evidence in logits
+            dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+            for evidence in self.logits
         ]
 
+        if use_pseudocoords is not None:
+            rts_avg = [
+                dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+                for evidence in mean_logits
+            ]
+
+            responses_avg = [
+                dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+                for evidence in mean_logits
+            ]
+
         responses = [
-            dynamics._get_decision_rt(
-                None, evidence, pointwise_rt=None, boundary=boundary[0]
-            )[1]
-            for evidence in logits
+            dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+            for evidence in self.logits
         ]
 
         d = {}
@@ -707,13 +827,45 @@ class SegmentationMap:
             for i, item in enumerate(psames_t)
         ]
         d["psame_final"] = [item[-1] for item in psames_t]
-        d["model_rt"] = rts
-        d["response"] = responses
+        d["online_rt"] = rts
+        d["online_response"] = responses
+        if use_pseudocoords is not None:
+            d["rt_avg"] = rts_avg
+            d["response_avg"] = responses_avg
+
         d["seg_flag"] = list(sfs_t[:, -1])
 
         df = pd.DataFrame.from_dict(d)
 
-        return df
+        if use_pseudocoords is not None:
+            df_out = pd.concat([df, self.pseudo_df], axis=0, ignore_index=True)
+
+        self.dynamics_pairwise_df = df_out
+        return df_out
+
+    def reapply_bounds(self, boundary):
+        if boundary is not None:
+            assert type(boundary) == dict
+            if list(boundary.keys())[0] == "const":
+                boundary = boundary["const"]
+            elif list(boundary.keys())[0] == "collapsing":
+                boundary = self._get_collapsing_bounds(boundary["collapsing"])
+        else:
+            boundary = [-1, 1]
+
+        rts = [
+            dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+            for evidence in self.logits
+        ]
+        responses = [
+            dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+            for evidence in self.logits
+        ]
+
+        assert hasattr(self, "pseudocoords") and hasattr(self, "pseudo_logits")
+
+        if hasattr(self, "pseudocoords") and hasattr(self, "pseudo_logits"):
+            pass
 
     def get_decision_rts_layers(
         self,
