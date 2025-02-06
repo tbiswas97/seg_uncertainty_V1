@@ -247,7 +247,7 @@ class SegmentationMap:
         self.seg_maps : dict
         self.flat_weights : ndarray
         self.weights_t : ndarray
-        self.segmapk : ndarray
+        self.segmap : ndarray
         self.means_t : ndarray
         self.covars_t : ndarray
         self.degrees_t : ndarray
@@ -479,6 +479,19 @@ class SegmentationMap:
         self.active_layer = layer
 
     def _get_collapsing_bounds(self, boundary):
+        """
+        Creates collapsing boundary function as a linear function of model
+        likelihood
+
+        Parameters:
+        ------------
+        boundary : array like
+            first element is boundary at t=0, last element is boundary at t=T
+
+        Returns:
+        ---------
+        bounds : list of arrays
+        """
         shape = self.likelihoods.mean(axis=1)
         shape = shape / shape.max()
         multiplier = boundary[0] - boundary[1]
@@ -486,9 +499,26 @@ class SegmentationMap:
         upper_bound = boundary[0] - (multiplier * shape)
         lower_bound = -upper_bound
 
-        return [upper_bound, lower_bound]
+        bounds = [upper_bound, lower_bound]
+
+        return bounds
 
     def _create_pseudocoords(self, coords, window=10, sample_size=10):
+        """
+        Creates a set of pseudocoords around specified coordinates
+
+        Parameters:
+        ------------
+        coords : array
+            the coordinates to create pseudo-coordinates around
+        window : int
+            the radius (pixels) of a square window around coords
+        sample_size : int
+            the number of pseudocoords to create
+
+        Returns:
+        -------
+        """
         self.pseudocoords_sample_size = sample_size
         self.pseudocoords_sample_size = sample_size
         canvas = np.zeros(self.im.shape[:-1]).astype("int")
@@ -544,6 +574,10 @@ class SegmentationMap:
         self, coords, shape=None, use_pseudocoords=None, sample_size=10
     ):
         """
+        Creates a pointwise proxy for reaction time for each coord in coords. If
+        using pseudocoords then the output is the average over all pseudocoords
+        per coord
+
         Parameters:
         ------------
         coords : array like
@@ -598,6 +632,26 @@ class SegmentationMap:
         return self.pointwise_rts
 
     def _process_pseudocoords(self, pair_idx, grids_idx, use_pointwise_rts=True):
+        """
+        Processes pseudocoords, creating a dataframe for pseudocoord results
+        alone
+
+        Parameters:
+        ------------
+        pair_idx : array
+            a one-dimensional index indicating the order of the pairs shown. All
+            pseudocoord pairs have the same pair_idx as the true coordinate pair
+            that the pseudocoords are spread around
+        grid_idx : array
+            an index indicating which grid pair
+        use_pointwise_rts : bool
+            if True, include pointwise_rts in the DataFrame, (takes much longer to run)
+
+        Returns:
+        ---------
+        df : pd.DataFrame
+        logits : array
+        """
         d = {}
         assert hasattr(self, "pseudocoords")
 
@@ -612,9 +666,17 @@ class SegmentationMap:
                 [[a, b] for a in pointwise_rts_a for b in pointwise_rts_b]
             )
 
-        psames_t = np.asarray(
-            [dynamics._get_psame_t(pair[0], pair[1], self) for pair in all_pairs]
-        )
+        if self.mode == "em":
+            psames_t = np.asarray(
+                [dynamics._get_psame_t(pair[0], pair[1], self) for pair in all_pairs]
+            )
+        elif self.mode == "ei":
+            psames_t = np.asarray(
+                [
+                    dynamics.evidence_integration(pair[0], pair[1], self)
+                    for pair in all_pairs
+                ]
+            )
         sfs_t = np.asarray(
             [dynamics._get_seg_flag_t(pair[0], pair[1], self) for pair in all_pairs]
         )
@@ -694,6 +756,8 @@ class SegmentationMap:
         use_pointwise_rts=True,
         use_pseudocoords=None,
         boundary={"constant": [1, -1]},
+        use_evidence_integration=None,
+        mode="em",
     ):
         """
         Returns pairwise decision times: $\hat{t}_p^*
@@ -714,11 +778,16 @@ class SegmentationMap:
         boundary : dict {str:list}
             "const" : uses a constant bound positive bound first in list then negative
             "collapsing" : uses a collapsing bound based on model likelihood
+        mode : str
+            "ei" : evidence integration mode
+            "em" : expectation-maximization mode
         """
 
         coords = pairs
         grids_idx = grids_idx.astype("int")
         self.grids_idx = grids_idx
+
+        boundary_key = list(boundary.keys())[0]
 
         if boundary is not None:
             assert type(boundary) == dict
@@ -726,6 +795,10 @@ class SegmentationMap:
                 boundary = boundary["const"]
             elif list(boundary.keys())[0] == "collapsing":
                 boundary = self._get_collapsing_bounds(boundary["collapsing"])
+            else:
+                raise ValueError(
+                    "Only acceptable boundary keys are const or collapsing"
+                )
         else:
             boundary = [-1, 1]
 
@@ -734,9 +807,25 @@ class SegmentationMap:
         distances = np.asarray(
             [tb.euclidean_distance(coord[0], coord[1]) for coord in coords]
         )
-        psames_t = np.asarray(
-            [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
-        )
+        if mode == "em":
+            self.mode = "em"
+            psames_t = np.asarray(
+                [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
+            )
+
+            self.psames_t = psames_t
+        elif mode == "ei":
+            self.mode = "ei"
+            psames_t = np.asarray(
+                [
+                    dynamics.evidence_integration(
+                        coord[0], coord[1], self, num_samples=20
+                    )
+                    for coord in coords
+                ]
+            )
+            self.psames_t = psames_t
+
         sfs_t = np.asarray(
             [dynamics._get_seg_flag_t(coord[0], coord[1], self) for coord in coords]
         )
@@ -839,11 +928,19 @@ class SegmentationMap:
 
         if use_pseudocoords is not None:
             df_out = pd.concat([df, self.pseudo_df], axis=0, ignore_index=True)
+        else:
+            df_out = df
 
+        df_out["bounds"] = boundary_key
         self.dynamics_pairwise_df = df_out
         return df_out
 
-    def reapply_bounds(self, boundary):
+    def reapply_bounds(self, boundary, key=None):
+
+        if key is not None:
+            key = key
+        else:
+            boundary_key = list(boundary.keys())[0]
         if boundary is not None:
             assert type(boundary) == dict
             if list(boundary.keys())[0] == "const":
@@ -862,10 +959,40 @@ class SegmentationMap:
             for evidence in self.logits
         ]
 
+        rts_avg = [
+            dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+            for evidence in self.mean_logits
+        ]
+        responses_avg = [
+            dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+            for evidence in self.mean_logits
+        ]
+
         assert hasattr(self, "pseudocoords") and hasattr(self, "pseudo_logits")
 
         if hasattr(self, "pseudocoords") and hasattr(self, "pseudo_logits"):
-            pass
+            rts_pseudo = [
+                dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+                for evidence in self.pseudo_logits.reshape(
+                    (-1, self.pseudo_logits.shape[-1])
+                )
+            ]
+
+            responses_pseudo = [
+                dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+                for evidence in self.pseudo_logits.reshape(
+                    (-1, self.pseudo_logits.shape[-1])
+                )
+            ]
+
+        df_new_bounds = self.dynamics_pairwise_df.copy()
+        df_new_bounds["online_rt"] = rts + rts_pseudo
+        df_new_bounds["online_response"] = responses + responses_pseudo
+        df_new_bounds["rt_avg"] = rts_avg + rts_pseudo
+        df_new_bounds["response_avg"] = responses_avg + rts_pseudo
+        df_new_bounds["bounds"] = [key] * (len(rts) + len(rts_pseudo))
+
+        return df_new_bounds
 
     def get_decision_rts_layers(
         self,
