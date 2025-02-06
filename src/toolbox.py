@@ -16,7 +16,7 @@ import scipy.misc as misc
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
 from scipy.ndimage import laplace, gaussian_filter, gaussian_laplace
-from scipy.stats import bootstrap, poisson, entropy
+from scipy.stats import bootstrap, poisson, entropy, beta
 from natsort import natsorted as ns
 from glob import glob as glob
 from matplotlib import image
@@ -31,6 +31,7 @@ from sklearn.metrics.cluster import contingency_matrix
 from sklearn.model_selection import LeaveOneOut
 
 import dirichlet
+
 # pixel per centimeter
 ppcm = 65
 
@@ -1180,15 +1181,15 @@ def gt_pca_cluster_centers(Xpca, gt):
     f = Xpca.shape[1]
     gt = np.reshape(gt, p)
     vals, counts = np.asarray(np.unique(gt, return_counts=True))
-    #vals[counts < THRESHOLD] = -1
-    adj_vals = vals[vals==vals]
+    # vals[counts < THRESHOLD] = -1
+    adj_vals = vals[vals == vals]
     indicators = []
     for val in adj_vals:
         indicator = np.zeros(gt.shape)
         indicator[gt == val] = 1
         indicators.append(indicator)
     labeled_arrs = []
-    assert(len(indicators)==len(np.unique(gt)))
+    assert len(indicators) == len(np.unique(gt))
     for indicator in indicators:
         labeled_arrs.append(
             np.multiply(Xpca, np.repeat(indicator[:, np.newaxis], f, axis=1))
@@ -1649,7 +1650,8 @@ def df_regress(
 
     if cv_params["cv"]:
         from sklearn.model_selection import cross_val_score
-        score = cross_val_score(reg,X,y,cv=cv_params["k"])
+
+        score = cross_val_score(reg, X, y, cv=cv_params["k"])
 
     d = {
         "index": index_tag,
@@ -1661,45 +1663,55 @@ def df_regress(
 
     return pd.DataFrame.from_dict(d)
 
-def fit_dirichlet(df,n_components=4,norm_with=None):
+
+def fit_dirichlet(df, n_components=4, norm_with=None):
     start_idx = list(df.columns).index("neuron_p0")
-    p = df.iloc[:,start_idx:start_idx+n_components].values
+    p = df.iloc[:, start_idx : start_idx + n_components].values
 
     if norm_with is not None:
-        def feature_scale(df,x):
-            out = (((df[x]-df[x].min())/(df[x].max()-df[x].min()))*100).round()
 
-            return out.values.reshape(-1,1)
+        def feature_scale(df, x):
+            out = (((df[x] - df[x].min()) / (df[x].max() - df[x].min())) * 100).round()
 
-        pz = np.concatenate((p,feature_scale(df,norm_with)),axis=1)
+            return out.values.reshape(-1, 1)
+
+        pz = np.concatenate((p, feature_scale(df, norm_with)), axis=1)
 
         obs = []
 
-        for i,row in enumerate(p):
-            obs.append(row.reshape(1,-1))#.repeat(pz[:,-1][i],0))
+        for i, row in enumerate(p):
+            obs.append(row.reshape(1, -1))  # .repeat(pz[:,-1][i],0))
 
-        obs = np.concatenate(obs,axis=0)
+        obs = np.concatenate(obs, axis=0)
     else:
         obs = p
 
     a = dirichlet.mle(obs)
-    
-    ll = dirichlet.loglikelihood(obs,a)
-    
-    new_cols = {'dirichlet_params':[a]*len(df),'log_likelihood':[ll]*len(df)}
+
+    ll = dirichlet.loglikelihood(obs, a)
+
+    new_cols = {"dirichlet_params": [a] * len(df), "log_likelihood": [ll] * len(df)}
 
     new_cols = pd.DataFrame.from_dict(new_cols)
-    #print(new_cols)
+    # print(new_cols)
 
-    return pd.concat([df.reset_index().drop('index',axis=1),new_cols.reset_index().drop('index',axis=1)],axis=1,ignore_index=False)
+    return pd.concat(
+        [
+            df.reset_index().drop("index", axis=1),
+            new_cols.reset_index().drop("index", axis=1),
+        ],
+        axis=1,
+        ignore_index=False,
+    )
+
 
 def generate_poisson_mixture(lambdas, weights, size=100):
     np.random.seed(42)
-    
+
     mixture = []
 
-    for l,weight in zip(lambdas,weights):
-        component = poisson.rvs(mu=l,size =int(weight*size))
+    for l, weight in zip(lambdas, weights):
+        component = poisson.rvs(mu=l, size=int(weight * size))
         mixture.append(component)
 
     data = np.concatenate(mixture)
@@ -1707,36 +1719,41 @@ def generate_poisson_mixture(lambdas, weights, size=100):
     np.random.shuffle(data)
 
     return data
-    
+
+
 def em_poisson_mixture(data, n_components=2, max_iter=100, tol=1e-6):
     n = len(data)
-    
-    #s = np.sort(data)
+
+    # s = np.sort(data)
     s = data
 
-    splits = np.array_split(s,n_components)
+    splits = np.array_split(s, n_components)
 
-    lambdas = np.asarray([np.max(split)*np.random.random() for split in splits])
+    lambdas = np.asarray([np.max(split) * np.random.random() for split in splits])
 
-    weights = np.ones(n_components)/n_components
-    
+    weights = np.ones(n_components) / n_components
+
     log_likelihood = []
 
     for i in range(max_iter):
-        #E-step:
-        responsibilities = np.zeros((n,n_components))
+        # E-step:
+        responsibilities = np.zeros((n, n_components))
 
         for k in range(n_components):
-            responsibilities[:,k] = weights[k] * poisson.pmf(data, lambdas[k])
-        
+            responsibilities[:, k] = weights[k] * poisson.pmf(data, lambdas[k])
+
         responsibilities /= responsibilities.sum(axis=1, keepdims=True)
 
-        #M-step: 
+        # M-step:
         weights = responsibilities.mean(axis=0)
         lambdas = (responsibilities.T @ data) / responsibilities.sum(axis=0)
 
         # Calculate log likelihood
-        ll = np.sum(np.log(np.sum(responsibilities * poisson.pmf(data[:, None], lambdas), axis=1)))
+        ll = np.sum(
+            np.log(
+                np.sum(responsibilities * poisson.pmf(data[:, None], lambdas), axis=1)
+            )
+        )
         log_likelihood.append(ll)
 
         # Check convergence
@@ -1745,56 +1762,62 @@ def em_poisson_mixture(data, n_components=2, max_iter=100, tol=1e-6):
 
         return weights, lambdas, log_likelihood
 
-def poisson_log_likelihood(data, weights,lambdas):
 
-    assert len(lambdas)==len(weights)
+def poisson_log_likelihood(data, weights, lambdas):
+
+    assert len(lambdas) == len(weights)
     n_components = len(weights)
 
-    responsibilities = np.zeros((len(data),n_components))
+    responsibilities = np.zeros((len(data), n_components))
     for k in range(n_components):
-        responsibilities[:,k] = weights[k] * poisson.pmf(data, lambdas[k])
-    
+        responsibilities[:, k] = weights[k] * poisson.pmf(data, lambdas[k])
+
     responsibilities /= responsibilities.sum(axis=1, keepdims=True)
-    ll = np.sum(np.log(np.sum(responsibilities * poisson.pmf(data[:, None], lambdas), axis=1)))
+    ll = np.sum(
+        np.log(np.sum(responsibilities * poisson.pmf(data[:, None], lambdas), axis=1))
+    )
 
     return ll
 
 
+# def get_poisson_modality_index(data,epochs = 100):
 
-#def get_poisson_modality_index(data,epochs = 100):
-    
-    #ress = []
-    #for i in range(epochs):
-        #out = [em_poisson_mixture(data,n_components = i+1)[-1][-1] for i in range(2)]
-        #diff = lambda x: x[0] - x[1]
-        
-        #res = diff(np.asarray(out))
+# ress = []
+# for i in range(epochs):
+# out = [em_poisson_mixture(data,n_components = i+1)[-1][-1] for i in range(2)]
+# diff = lambda x: x[0] - x[1]
 
-        #ress.append(res)
-    
-    #return sum(ress)/len(ress)
+# res = diff(np.asarray(out))
+
+# ress.append(res)
+
+# return sum(ress)/len(ress)
+
 
 def get_poisson_modality_index(data):
 
     loo = LeaveOneOut()
 
     likelihood_ratio = []
-    for i,(train_idx,test_idx) in enumerate(loo.split(data)):
-        fits = [em_poisson_mixture(data[train_idx],n_components = i+1) for i in range(2)]
-        cv_1 = poisson_log_likelihood(data[test_idx],fits[0][0],fits[0][1])
-        cv_2 = poisson_log_likelihood(data[test_idx],fits[1][0],fits[1][1])
-        likelihood_ratio.append(cv_1-cv_2)
-    
+    for i, (train_idx, test_idx) in enumerate(loo.split(data)):
+        fits = [
+            em_poisson_mixture(data[train_idx], n_components=i + 1) for i in range(2)
+        ]
+        cv_1 = poisson_log_likelihood(data[test_idx], fits[0][0], fits[0][1])
+        cv_2 = poisson_log_likelihood(data[test_idx], fits[1][0], fits[1][1])
+        likelihood_ratio.append(cv_1 - cv_2)
+
     return np.median(likelihood_ratio)
 
-def p_add_epsilon(df,epsilon):
+
+def p_add_epsilon(df, epsilon):
     cols = list(df.columns)
     start_idx = cols.index("neuron_p0")
 
-    p = df.iloc[:,start_idx:start_idx+4].values
-    
-    p = p+epsilon 
-    p = np.divide(p,p.sum(axis=1)[...,np.newaxis])
+    p = df.iloc[:, start_idx : start_idx + 4].values
+
+    p = p + epsilon
+    p = np.divide(p, p.sum(axis=1)[..., np.newaxis])
 
     assert p.sum(axis=1).all() == 1
 
@@ -1804,6 +1827,27 @@ def p_add_epsilon(df,epsilon):
 
     df["eps_entropy"] = entr
 
-    return df,p
-    
+    return df, p
 
+
+def estimate_beta_param(mu, var=None):
+    if var is not None:
+        var = var
+    else:
+        var = 0.1 * (mu * (1 - mu))
+    alpha = (((1 - mu) / var) - (1 / mu)) * mu**2
+    beta = alpha * ((1 / mu) - 1)
+    return {"alpha": alpha, "beta": beta, "var": var, "std": np.sqrt(var)}
+
+
+def draw_beta_samples(mu, num_samples=10, var=None):
+    if var is not None:
+        var = var
+    else:
+        var = 0.1 * (mu * (1 - mu))
+
+    out = estimate_beta_param(mu)
+
+    samples = beta.rvs(out["alpha"], out["beta"], size=num_samples)
+
+    return samples
