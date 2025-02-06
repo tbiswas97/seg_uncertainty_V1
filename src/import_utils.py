@@ -9,10 +9,8 @@ import pickle
 SESSION_PATH = "/Users/tb/Documents/lab/projects/sun_workspace/"
 
 
-
-
-# Add filepaths for new experiments here: 
-def get_exp_info(EXP_NAME,index=None):
+# Add filepaths for new experiments here:
+def get_exp_info(EXP_NAME, index=None):
     """
     Use to extract Session information given EXP_NAME input.
     This is because different experiments are formatted differently.
@@ -46,12 +44,11 @@ def get_exp_info(EXP_NAME,index=None):
             os.path.join(os.path.dirname(SESSION_PATH), EXP_NAME, EXP_NAME + ".mat")
         )
         SESSION_IMS = os.path.abspath(
-            os.path.join(os.path.dirname(SESSION_PATH), EXP_NAME, EXP_NAME + "_images.pkl")
+            os.path.join(
+                os.path.dirname(SESSION_PATH), EXP_NAME, EXP_NAME + "_images.pkl"
+            )
         )
-        d = {
-            "SESSION_MAT_PATH": SESSION_MAT_PATH,
-            "SESSION_IMS" : SESSION_IMS
-        }
+        d = {"SESSION_MAT_PATH": SESSION_MAT_PATH, "SESSION_IMS": SESSION_IMS}
 
     elif EXP_NAME == "NN2015":
         if index is not None:
@@ -63,16 +60,14 @@ def get_exp_info(EXP_NAME,index=None):
         else:
             SESSION_MAT_PATH = None
         SESSION_IMS = os.path.abspath(
-            os.path.join(os.path.dirname(SESSION_PATH), EXP_NAME, EXP_NAME + "_images.pkl")
+            os.path.join(
+                os.path.dirname(SESSION_PATH), EXP_NAME, EXP_NAME + "_images.pkl"
+            )
         )
-        d = {
-            "SESSION_MAT_PATH": SESSION_MAT_PATH,
-            "SESSION_IMS" : SESSION_IMS
-        }
-    else: 
+        d = {"SESSION_MAT_PATH": SESSION_MAT_PATH, "SESSION_IMS": SESSION_IMS}
+    else:
         print("INVALID NAME")
     return d
-
 
 
 Dataset = h5py._hl.dataset.Dataset
@@ -229,13 +224,15 @@ def _load(filename):
     with open(filename, "rb") as f:
         return pickle.load(f)
 
+
 # CHANGE EXP NAME HERE
 EXP_NAME = "EXP150_NatImages_NeuroPixels"
-#EXP_NAME = "Sessions_NaturalEnsemble_136"
+# EXP_NAME = "Sessions_NaturalEnsemble_136"
 
 # iids of images associated with experiment
 if EXP_NAME == "EXP150_NatImages_NeuroPixels":
-    IID_MAT_PATH = os.path.abspath( os.path.join(
+    IID_MAT_PATH = os.path.abspath(
+        os.path.join(
             os.path.dirname(SESSION_PATH), EXP_NAME, "EXP150_NatImages_Names.mat"
         )
     )
@@ -264,10 +261,7 @@ elif EXP_NAME == "Sessions_NaturalEnsemble_136":
     SESSION_IMS = os.path.abspath(
         os.path.join(os.path.dirname(SESSION_PATH), EXP_NAME, EXP_NAME + "_images.pkl")
     )
-    d = {
-        "SESSION_MAT_PATH": SESSION_MAT_PATH,
-        "SESSION_IMS" : SESSION_IMS
-    }
+    d = {"SESSION_MAT_PATH": SESSION_MAT_PATH, "SESSION_IMS": SESSION_IMS}
 # Paths to BSD data
 JPG_PATH_TRAIN = os.path.abspath(
     os.path.join(
@@ -294,13 +288,7 @@ JPG_PATH_TEST = os.path.abspath(
 
 JPG_PATH_VAL = os.path.abspath(
     os.path.join(
-        os.path.dirname(SESSION_PATH),
-        "data",
-        "BSR",
-        "BSDS500",
-        "data",
-        "images",
-        "val"
+        os.path.dirname(SESSION_PATH), "data", "BSR", "BSDS500", "data", "images", "val"
     )
 )
 
@@ -312,7 +300,7 @@ SEG_PATH_TRAIN = os.path.abspath(
         "BSDS500",
         "data",
         "groundTruth",
-        "train"
+        "train",
     )
 )
 
@@ -324,7 +312,7 @@ SEG_PATH_TEST = os.path.abspath(
         "BSDS500",
         "data",
         "groundTruth",
-        "test"
+        "test",
     )
 )
 
@@ -336,6 +324,6 @@ SEG_PATH_VAL = os.path.abspath(
         "BSDS500",
         "data",
         "groundTruth",
-        "val"
+        "val",
     )
 )
