@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import entropy
+from scipy.stats import entropy, beta
 from matplotlib import pyplot as plt
 from numpy.lib.stride_tricks import sliding_window_view
 
@@ -190,6 +190,60 @@ def _get_psame_t(coord1, coord2, SegMap):
     return psame_t
 
 
+# EVIDENCE INTEGRATION FUNCTIONS
+def estimate_beta_param(mu, var=None, eps=1e6):
+
+    if mu == 0.0:
+        mu += eps
+    elif not (mu < 1.0):
+        mu = 1 - eps
+
+    if var is not None:
+        var = var
+    else:
+        var = 0.1 * (mu * (1 - mu))
+    alpha = (((1 - mu) / var) - (1 / mu)) * mu**2
+    beta = alpha * ((1 / mu) - 1)
+    return {"alpha": alpha, "beta": beta, "var": var, "std": np.sqrt(var)}
+
+
+def draw_beta_samples(mu, num_samples=10, var=None):
+    if var is not None:
+        var = var
+    else:
+        var = 0.1 * (mu * (1 - mu))
+
+    out = estimate_beta_param(mu)
+
+    try:
+        samples = beta.rvs(out["alpha"], out["beta"], size=num_samples)
+    except ValueError:
+        samples = beta.rvs(out["alpha"], out["beta"], size=num_samples)
+
+    return samples
+
+
+def evidence_integration(coord1, coord2, SegMap, num_samples=None):
+    pmap = np.moveaxis(SegMap.weights_t, -1, 1)
+
+    n_iter = pmap.shape[0]
+
+    if num_samples is not None:
+        num_samples = num_samples
+    else:
+        num_samples = n_iter
+
+    pmap_a = pmap[:, :, coord1[0], coord1[1]]
+    pmap_b = pmap[:, :, coord2[0], coord2[1]]
+
+    psame = np.dot(pmap_a[-1], pmap_b[-1])
+
+    samples = draw_beta_samples(psame, num_samples=num_samples)
+    integration = np.cumsum(samples) / np.arange(1, len(samples) + 1)
+
+    return integration
+
+
 def _get_seg_flag_t(coord1, coord2, SegMap):
     """
     Calculates f_{ij}^{(t)}
@@ -251,85 +305,40 @@ def _get_logit(coord1, coord2, psame_t, evidence_type="logit"):
         return logit
 
 
-def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
+def _get_decision_rt(evidence, boundary=None):
     """
     Calculate decision reaction time from evidence and boundary
 
     Parameters:
     -----------
-    yes_no : str or None
-        "yes" : if decision is "yes" a priori then use the positive boundary
-        "no" : if decision is "no" a priori then use the negative boundary
-        None : if decision is not known a priori then use *either* boundary
     evidence : array
         logits per algorithm iteration
-    pointwise_rt : bool
-        if True, use the slowest pointwise reaction time if the pairwise time is
-        faster than either point
-    boundary : int
-        positive int, if yes_no is "no" then use the negative of boundary
-        #TODO: change this later to handle asymmetric boundaries
+    boundary : array
 
     Returns:
     ---------
     rt : int
         The iteration where the evidence crosses the boundary
-    response : bool, None if yes_no is not None
-
+    response : bool
     """
     if boundary is not None:
         boundary = boundary
     else:
         # default value for boundary
-        boundary = 0.8 * np.max(evidence)
+        boundary = [1, -1]
 
     response = None
 
-    if pointwise_rt is not None:
-        slow_point = np.max(pointwise_rt)
-        slow_point_idx = np.ceil(slow_point).astype("int")
-        try:
-            if yes_no == "yes":
-                bound_idx = np.where(evidence > boundary)[0][0]
-            elif yes_no == "no":
-                bound_idx = np.where(evidence < -boundary)[0][0]
-            elif yes_no == None:
-                bound_idx = np.where(
-                    (evidence > boundary[0]) | (evidence < boundary[-1])
-                )[0][0]
-                decision = evidence[bound_idx]
-                if decision > boundary:
-                    response = True
-                elif decision < -boundary:
-                    response = False
-            if bound_idx < np.ceil(slow_point_idx):
-                rt = slow_point_idx
-            else:
-                rt = bound_idx
-
-        except:
-            rt = len(evidence)
-    else:
-        try:
-            if yes_no == "yes":
-                bound_idx = np.where(evidence > boundary)[0][0]
-            elif yes_no == "no":
-                bound_idx = np.where(evidence < -boundary)[0][0]
-            elif yes_no == None:
-                bound_idx = np.where((evidence > boundary) | (evidence < -boundary))[0][
-                    0
-                ]
-                decision = evidence[bound_idx]
-                if decision > boundary:
-                    response = True
-                elif decision < -boundary:
-                    response = False
-            rt = bound_idx
-        except:
-            rt = len(evidence)
-
-    if rt == 0:
-        rt = 1
+    try:
+        bound_idx = np.where((evidence > boundary[0]) | (evidence < boundary[1]))[0][0]
+        decision = evidence[bound_idx]
+        if decision > 0:
+            response = True
+        elif decision < 0:
+            response = False
+        rt = bound_idx
+    except:
+        rt = len(evidence)
 
     if response is not None:
         return rt, response
@@ -337,7 +346,15 @@ def _get_decision_rt(yes_no, evidence, pointwise_rt=None, boundary=None):
         return rt, np.nan
 
 
-def df_to_rt_vs_distance(df, rt_col="model_rt", kernel_size=10, groupby="seg_flag"):
+def df_to_rt_hist(df, rt_col="online_rt", groupby="seg_flag", nbins=20):
+    all_yes = df.loc[(df[groupby] == 1), [rt_col]]
+    all_no = df.loc[(df[groupby] == 0), [rt_col]]
+    fig, axs = plt.subplots(nrows=1, ncols=2, sharey=True, sharex=True)
+    axs[0].hist(all_yes.values, bins=nbins, density=True, facecolor="green")
+    axs[1].hist(all_no.values, bins=nbins, density=True, facecolor="orange")
+
+
+def df_to_rt_vs_distance(df, rt_col="online_rt", kernel_size=10, groupby="seg_flag"):
     dist_y = (
         df.sort_values("image_distance")
         .loc[(df[groupby] == True), "image_distance"]
@@ -362,7 +379,7 @@ def df_to_rt_vs_distance(df, rt_col="model_rt", kernel_size=10, groupby="seg_fla
     d["plot_yes"] = (dist_smooth_y, rt_smooth_y)
     d["plot_no"] = (dist_smooth_n, rt_smooth_n)
 
-    plt.plot(d["plot_yes"][0], d["plot_yes"][1])
-    plt.plot(d["plot_no"][0], d["plot_no"][1])
+    plt.plot(d["plot_yes"][0], d["plot_yes"][1], c="green")
+    plt.plot(d["plot_no"][0], d["plot_no"][1], c="orange")
 
     return d
