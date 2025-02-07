@@ -673,7 +673,9 @@ class SegmentationMap:
         elif self.mode == "ei":
             psames_t = np.asarray(
                 [
-                    dynamics.evidence_integration(pair[0], pair[1], self)
+                    dynamics.evidence_integration(
+                        pair[0], pair[1], self, num_samples=20
+                    )
                     for pair in all_pairs
                 ]
             )
