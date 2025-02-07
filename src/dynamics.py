@@ -339,6 +339,13 @@ def _get_decision_rt(evidence, boundary=None):
         rt = bound_idx
     except:
         rt = len(evidence)
+        decision = evidence[-1]
+        if decision > 0:
+            response = True
+        elif decision < 0:
+            response = False
+        else:
+            response = None
 
     if response is not None:
         return rt, response
@@ -354,7 +361,16 @@ def df_to_rt_hist(df, rt_col="online_rt", groupby="seg_flag", nbins=20):
     axs[1].hist(all_no.values, bins=nbins, density=True, facecolor="orange")
 
 
-def df_to_rt_vs_distance(df, rt_col="online_rt", kernel_size=10, groupby="seg_flag"):
+def df_to_rt_vs_distance(
+    df, rt_col="online_rt", kernel_size=10, groupby="seg_flag", _sample=None
+):
+    df = df.loc[:, ["image_distance", rt_col, groupby]]
+
+    if _sample is not None:
+        df = df.sample(frac=_sample)
+    else:
+        pass
+
     dist_y = (
         df.sort_values("image_distance")
         .loc[(df[groupby] == True), "image_distance"]
