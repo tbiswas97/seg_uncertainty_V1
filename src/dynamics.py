@@ -191,57 +191,64 @@ def _get_psame_t(coord1, coord2, SegMap):
 
 
 # EVIDENCE INTEGRATION FUNCTIONS
-def estimate_beta_param(mu, var=None, eps=1e6):
+# def estimate_beta_param(mu, var=None, eps=1e6):
 
-    if mu == 0.0:
-        mu += eps
-    elif not (mu < 1.0):
-        mu = 1 - eps
+# if mu == 0.0:
+# mu += eps
+# elif not (mu < 1.0):
+# mu = 1 - eps
 
-    if var is not None:
-        var = var
-    else:
-        var = 0.1 * (mu * (1 - mu))
-    alpha = (((1 - mu) / var) - (1 / mu)) * mu**2
-    beta = alpha * ((1 / mu) - 1)
-    return {"alpha": alpha, "beta": beta, "var": var, "std": np.sqrt(var)}
-
-
-def draw_beta_samples(mu, num_samples=10, var=None):
-    if var is not None:
-        var = var
-    else:
-        var = 0.1 * (mu * (1 - mu))
-
-    out = estimate_beta_param(mu)
-
-    try:
-        samples = beta.rvs(out["alpha"], out["beta"], size=num_samples)
-    except ValueError:
-        samples = beta.rvs(out["alpha"], out["beta"], size=num_samples)
-
-    return samples
+# if var is not None:
+# var = var
+# else:
+# var = 0.1 * (mu * (1 - mu))
+# alpha = (((1 - mu) / var) - (1 / mu)) * mu**2
+# beta = alpha * ((1 / mu) - 1)
+# return {"alpha": alpha, "beta": beta, "var": var, "std": np.sqrt(var)}
 
 
-def evidence_integration(coord1, coord2, SegMap, num_samples=None):
-    pmap = np.moveaxis(SegMap.weights_t, -1, 1)
+# def draw_beta_samples(mu, num_samples=10, var=None):
+# if var is not None:
+# var = var
+# else:
+# var = 0.1 * (mu * (1 - mu))
 
-    n_iter = pmap.shape[0]
+# out = estimate_beta_param(mu)
 
-    if num_samples is not None:
-        num_samples = num_samples
-    else:
-        num_samples = n_iter
+# try:
+# samples = beta.rvs(out["alpha"], out["beta"], size=num_samples)
+# except ValueError:
+# samples = beta.rvs(out["alpha"], out["beta"], size=num_samples)
 
-    pmap_a = pmap[:, :, coord1[0], coord1[1]]
-    pmap_b = pmap[:, :, coord2[0], coord2[1]]
+# return samples
 
-    psame = np.dot(pmap_a[-1], pmap_b[-1])
 
-    samples = draw_beta_samples(psame, num_samples=num_samples)
-    integration = np.cumsum(samples) / np.arange(1, len(samples) + 1)
+# def evidence_integration(coord1, coord2, SegMap, num_samples=None):
+# segmap = SegMap.segmap
 
-    return integration
+# seg_a = segmap[coord1[0], coord1[1]]
+# seg_b = segmap[coord2[0], coord2[1]]
+
+# flag = seg_a == seg_b
+
+# pmap = np.moveaxis(SegMap.weights_t, -1, 1)
+
+# n_iter = pmap.shape[0]
+
+# if num_samples is not None:
+# num_samples = num_samples
+# else:
+# num_samples = n_iter
+
+# pmap_a = pmap[:, :, coord1[0], coord1[1]]
+# pmap_b = pmap[:, :, coord2[0], coord2[1]]
+
+# psame = np.dot(pmap_a[-1], pmap_b[-1])
+
+# samples = draw_beta_samples(psame, num_samples=num_samples)
+# integration = np.cumsum(samples) / np.arange(1, len(samples) + 1)
+
+# return integration
 
 
 def _get_seg_flag_t(coord1, coord2, SegMap):
@@ -284,6 +291,21 @@ def _get_entropy(coord1, coord2, SegMap):
     assert len(psame_t) == len(seg_flag_t)
 
     return entropy(psame_t[..., np.newaxis], axis=1)
+
+
+def _get_ei_logits(coord1, coord2, seg_flag, multiplier=5, eps=1e-4, sample_size=20):
+
+    get_logit = lambda x: np.log(x) - np.log(1 - x)
+
+    if seg_flag:
+        starting_point = get_logit(1 - eps)
+    else:
+        starting_point = get_logit(eps)
+
+    samples = starting_point + multiplier * np.random.normal(0, 1, size=sample_size)
+    integrated_evidence = np.cumsum(samples) / np.arange(1, len(samples) + 1)
+
+    return integrated_evidence
 
 
 def _get_logit(coord1, coord2, psame_t, evidence_type="logit"):
