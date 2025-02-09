@@ -631,7 +631,14 @@ class SegmentationMap:
 
         return self.pointwise_rts
 
-    def _process_pseudocoords(self, pair_idx, grids_idx, use_pointwise_rts=True):
+    def _process_pseudocoords(
+        self,
+        pair_idx,
+        grids_idx,
+        use_pointwise_rts=False,
+        use_evidence_integration=True,
+        pseudo_evidence_integration=False,
+    ):
         """
         Processes pseudocoords, creating a dataframe for pseudocoord results
         alone
@@ -646,6 +653,10 @@ class SegmentationMap:
             an index indicating which grid pair
         use_pointwise_rts : bool
             if True, include pointwise_rts in the DataFrame, (takes much longer to run)
+        use_evidence_integration: bool
+            includes evidence integation rts in the pseudocoord dataframe
+        pseudo_evidence_integration: bool
+            if True, will recalculate evidence integration per pseudocoord
 
         Returns:
         ---------
@@ -666,19 +677,9 @@ class SegmentationMap:
                 [[a, b] for a in pointwise_rts_a for b in pointwise_rts_b]
             )
 
-        if self.mode == "em":
-            psames_t = np.asarray(
-                [dynamics._get_psame_t(pair[0], pair[1], self) for pair in all_pairs]
-            )
-        elif self.mode == "ei":
-            psames_t = np.asarray(
-                [
-                    dynamics.evidence_integration(
-                        pair[0], pair[1], self, num_samples=20
-                    )
-                    for pair in all_pairs
-                ]
-            )
+        psames_t = np.asarray(
+            [dynamics._get_psame_t(pair[0], pair[1], self) for pair in all_pairs]
+        )
         sfs_t = np.asarray(
             [dynamics._get_seg_flag_t(pair[0], pair[1], self) for pair in all_pairs]
         )
@@ -688,6 +689,27 @@ class SegmentationMap:
                 for pair, psame_t in zip(all_pairs, psames_t)
             ]
         )
+        if pseudo_evidence_integration:
+            ei_logits = np.asarray(
+                [
+                    dynamics._get_ei_logits(coord[0], coord[1], seg_flag)
+                    for coord, seg_flag in zip(all_pairs, sfs_t[:, -1])
+                ]
+            )
+
+            ei_rts = np.asarray(
+                [
+                    dynamics._get_decision_rt(evidence, boundary=self.boundary)[0]
+                    for evidence in ei_logits
+                ]
+            )
+
+            ei_responses = np.asarray(
+                [
+                    dynamics._get_decision_rt(evidence, boundary=self.boundary)[1]
+                    for evidence in ei_logits
+                ]
+            )
 
         rts = [
             dynamics._get_decision_rt(evidence, boundary=self.boundary)[0]
@@ -723,6 +745,13 @@ class SegmentationMap:
         d["psame_final"] = [item[-1] for item in psames_t]
         d["online_rt"] = rts
         d["online_response"] = responses
+        if use_evidence_integration:
+            if pseudo_evidence_integration:
+                d["ei_rt"] = ei_rts
+                d["ei_response"] = ei_responses
+            else:
+                d["ei_rt"] = self.ei_rts[pair_idx]
+                d["ei_response"] = self.ei_responses[pair_idx]
         d["rt_avg"] = rts
         d["response_avg"] = responses
         d["seg_flag"] = list(sfs_t[:, -1])
@@ -755,11 +784,10 @@ class SegmentationMap:
         points,
         pairs,
         grids_idx,
-        use_pointwise_rts=True,
+        boundary={"const": [1, -1]},
+        use_pointwise_rts=None,
         use_pseudocoords=None,
-        boundary={"constant": [1, -1]},
-        use_evidence_integration=None,
-        mode="em",
+        use_evidence_integration=True,
     ):
         """
         Returns pairwise decision times: $\hat{t}_p^*
@@ -773,16 +801,15 @@ class SegmentationMap:
             a subset of all possible pairs
         grids_idx : array like
             the grid index for each pair, 1-indexed, not 0!
+        boundary : dict {str:list}
+            "const" : uses a constant bound positive bound first in list then negative
+            "collapsing" : uses a collapsing bound based on model likelihood
         use_pointwise_rts : bool
             calculates pointwise rts if true
         use_pseudocoords : bool
             use evidence calculated from pseudocoords as well
-        boundary : dict {str:list}
-            "const" : uses a constant bound positive bound first in list then negative
-            "collapsing" : uses a collapsing bound based on model likelihood
-        mode : str
-            "ei" : evidence integration mode
-            "em" : expectation-maximization mode
+        use_evidence_integration : bool
+            use evidence integration sampling to return an rt
         """
 
         coords = pairs
@@ -809,24 +836,12 @@ class SegmentationMap:
         distances = np.asarray(
             [tb.euclidean_distance(coord[0], coord[1]) for coord in coords]
         )
-        if mode == "em":
-            self.mode = "em"
-            psames_t = np.asarray(
-                [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
-            )
+        self.mode = "em"
+        psames_t = np.asarray(
+            [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
+        )
 
-            self.psames_t = psames_t
-        elif mode == "ei":
-            self.mode = "ei"
-            psames_t = np.asarray(
-                [
-                    dynamics.evidence_integration(
-                        coord[0], coord[1], self, num_samples=20
-                    )
-                    for coord in coords
-                ]
-            )
-            self.psames_t = psames_t
+        self.psames_t = psames_t
 
         sfs_t = np.asarray(
             [dynamics._get_seg_flag_t(coord[0], coord[1], self) for coord in coords]
@@ -838,6 +853,27 @@ class SegmentationMap:
             ]
         )
 
+        if use_evidence_integration:
+            self.ei_logits = np.asarray(
+                [
+                    dynamics._get_ei_logits(coord[0], coord[1], seg_flag)
+                    for coord, seg_flag in zip(pairs, sfs_t[:, -1])
+                ]
+            )
+
+            self.ei_rts = np.asarray(
+                [
+                    dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+                    for evidence in self.ei_logits
+                ]
+            )
+
+            self.ei_responses = np.asarray(
+                [
+                    dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+                    for evidence in self.ei_logits
+                ]
+            )
         if use_pseudocoords is not None:
             # self.pseudocoords and self.coords created here
             # default window size of 5
@@ -923,6 +959,9 @@ class SegmentationMap:
         if use_pseudocoords is not None:
             d["rt_avg"] = rts_avg
             d["response_avg"] = responses_avg
+        if use_evidence_integration:
+            d["ei_rt"] = self.ei_rts
+            d["ei_response"] = self.ei_responses
 
         d["seg_flag"] = list(sfs_t[:, -1])
 
