@@ -266,19 +266,24 @@ class Session:
         unresponsive_alpha=0,
         mr_thresh=0.9,
         annular_excision=True,
+        large_image_only=False,
         use_session_vars=True,
     ):
         """
-        Main function that excludes neurons based on the described criteria:
-        The responsiveness threshold is:
+        Main function that excludes neurons based on the described criteria: The
+        responsiveness threshold is:
 
         threshold = Rsc_spontaneous_mean + alpha*Rsc_spontaenous_std
 
+        Parameters:
+        ------------
         thresh : float
-            a distance threshold below which neurons are considered to be "center"
+            a distance threshold below which neurons are considered to be
+            "center"
         d : float
-            (thresh+d) is the distance threshold above which neurons are considered to be "off_center"
-            neurons between thresh and thresh+d are considered "excised"
+            (thresh+d) is the distance threshold above which neurons are
+            considered to be "off_center" neurons between thresh and thresh+d
+            are considered "excised"
         alpha : float
             excluded neurons are those with activity below
         unresponsive_alpha : float
@@ -286,12 +291,18 @@ class Session:
         mr_thresh : float
             a threshold for neuron modulation ratios
         annular_excision: bool
-            if True, then the "excised" neurons are excluded from downstream analysis
-            if False, then the "excised" neurons are reassigned to be "off_center"
+            if True, then the "excised" neurons are excluded from downstream
+            analysis if False, then the "excised" neurons are reassigned to be
+            "off_center"
+        large_image_only : bool
+            if True, thresholds are only set using the large image
         use_session_vars : bool
-            if False, metrics are calculated from the spike train itself
-            if True metrics are calculated from fields in the Session object (.mat file)
+            if False, metrics are calculated from the spike train itself if True
+            metrics are calculated from fields in the Session object (.mat file)
 
+        Returns:
+        ---------
+        None
         """
         # neuron exclusions
         self.neuron_exclusion_parameters = {
@@ -347,30 +358,49 @@ class Session:
 
         # change all mean firing rates and thresholds to spike counts
 
-        # to_compare = np.maximum(
-        # self.mean_scs["center_small"], self.mean_scs["center_large"]
-        # )
-        to_compare = self.mean_frs["center_small"]
+        if large_image_only:
+            # use values only from large image presentation
+            temp_inclusion = {
+                "center": (
+                    self.mean_frs["center_large"]
+                    >= self.thresholds["center_responsive"]
+                ),
+                "off_center": self.mean_frs["off_center_large"]
+                >= self.thresholds["off_center_responsive"],
+            }
 
-        temp_inclusion = {
-            # change to center_large OR max(center_large, center_small)
-            "center": (to_compare >= self.thresholds["center_responsive"]),
-            "off_center_1": self.mean_frs["off_center_small"]
-            <= self.thresholds["off_center_unresponsive"],
-            "off_center_2": self.mean_frs["off_center_large"]
-            >= self.thresholds["off_center_responsive"],
-        }
+            self.exclusion_masks = {
+                "center": ~(temp_inclusion["center"]),
+                "off_center": ~(temp_inclusion["off_center"]),
+            }
 
-        self.exclusion_masks = {
-            "center": ~(temp_inclusion["center"]),
-            "off_center": ~(
-                np.logical_and(
-                    temp_inclusion["off_center_1"], temp_inclusion["off_center_2"]
-                )
-            ),
-        }
+            self._neuron_exclusion = True
 
-        self._neuron_exclusion = True
+        else:
+            # to_compare = np.maximum(
+            # self.mean_scs["center_small"], self.mean_scs["center_large"]
+            # )
+            to_compare = self.mean_frs["center_small"]
+
+            temp_inclusion = {
+                # change to center_large OR max(center_large, center_small)
+                "center": (to_compare >= self.thresholds["center_responsive"]),
+                "off_center_1": self.mean_frs["off_center_small"]
+                <= self.thresholds["off_center_unresponsive"],
+                "off_center_2": self.mean_frs["off_center_large"]
+                >= self.thresholds["off_center_responsive"],
+            }
+
+            self.exclusion_masks = {
+                "center": ~(temp_inclusion["center"]),
+                "off_center": ~(
+                    np.logical_and(
+                        temp_inclusion["off_center_1"], temp_inclusion["off_center_2"]
+                    )
+                ),
+            }
+
+            self._neuron_exclusion = True
 
     def get_df(
         self,
