@@ -98,7 +98,7 @@ class Analysis:
                 im_shape=self.Session.im_size,
                 bounding_box=bounding_box,
                 spatial_average=spatial_average,
-                calculate_global_entropy=calculate_entropy
+                calculate_global_entropy=calculate_entropy,
             )
 
             if calculate_entropy:
@@ -119,6 +119,7 @@ class Analysis:
             from analysis import pairwise_analysis as pwa
 
             df = self.Session.df
+            assert df is not None
 
             out = pwa.stitch_info(
                 df,
@@ -128,7 +129,6 @@ class Analysis:
                 bounding_box=bounding_box,
                 spatial_average=spatial_average,
             )
-
 
         self.fit_df = out
         return out
@@ -159,9 +159,9 @@ class Analysis:
             Non-map, non-neural metric to be used as a control
         norm : bool, Default True
             whether data should be z-scored before regression
-        type : str 
-            Linear | Uses a standard linear regression 
-            Ridge | Uses Ridge regressino 
+        type : str
+            Linear | Uses a standard linear regression
+            Ridge | Uses Ridge regressino
         """
 
         assert hasattr(self, "fit_df"), "Call method run_model_fit() first"
@@ -169,9 +169,9 @@ class Analysis:
         if type == "Linear":
             reg = linear_model.LinearRegression(**reg_kwargs)
         elif type == "Ridge":
-            #TODO: implement Ridge regression option 
+            # TODO: implement Ridge regression option
             pass
-        
+
         if self.mode == "single-neuron":
             all_metrics = neural_metrics + map_metrics
             for metric in all_metrics:
@@ -273,7 +273,7 @@ class Analysis:
                 {"index": "layer", "coefs": "coefs_" + neural_metrics[0]}, axis=1
             )
             self.res_df["predictor"] = map_metrics[0]
-            self.res_df["control"] = control 
+            self.res_df["control"] = control
             self.res_df["is_control"] = 0
 
             # TODO: control has been output, now output result with map metrics
