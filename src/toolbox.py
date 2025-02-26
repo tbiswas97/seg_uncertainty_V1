@@ -1851,3 +1851,21 @@ def draw_beta_samples(mu, num_samples=10, var=None):
     samples = beta.rvs(out["alpha"], out["beta"], size=num_samples)
 
     return samples
+
+
+def scale_im_up(im, new_size):
+    assert im.ndim == 2
+    assert im.shape[0] == im.shape[1]
+    assert im.shape[0] < new_size
+
+    curr_size = im.shape[0]
+
+    common_mult = np.lcm(curr_size, new_size)
+
+    im_big = im.repeat(common_mult // curr_size, axis=0).repeat(
+        common_mult // curr_size, axis=1
+    )
+
+    im_small = _bin(im_big, binsize=(common_mult // new_size, common_mult // new_size))
+
+    return im_small
