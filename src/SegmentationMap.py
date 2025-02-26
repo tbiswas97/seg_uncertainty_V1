@@ -636,8 +636,9 @@ class SegmentationMap:
         pair_idx,
         grids_idx,
         use_pointwise_rts=False,
-        use_evidence_integration=True,
-        pseudo_evidence_integration=False,
+        use_evidence_integration=False,
+        weighted_evidence_integration=True,
+        out="df",
     ):
         """
         Processes pseudocoords, creating a dataframe for pseudocoord results
@@ -655,9 +656,10 @@ class SegmentationMap:
             if True, include pointwise_rts in the DataFrame, (takes much longer to run)
         use_evidence_integration: bool
             includes evidence integation rts in the pseudocoord dataframe
-        pseudo_evidence_integration: bool
-            if True, will recalculate evidence integration per pseudocoord
-
+        out : str
+            "logits" : returns logits for all pseudcoord pairs at a particular grid pair
+            "ei_logits" : return evidence integration logits
+            "df" : returns the DataFrame
         Returns:
         ---------
         df : pd.DataFrame
@@ -683,19 +685,33 @@ class SegmentationMap:
         sfs_t = np.asarray(
             [dynamics._get_seg_flag_t(pair[0], pair[1], self) for pair in all_pairs]
         )
+
         logits = np.asarray(
             [
                 dynamics._get_logit(pair[0], pair[1], psame_t)
                 for pair, psame_t in zip(all_pairs, psames_t)
             ]
         )
-        if pseudo_evidence_integration:
+        if out == "logits":
+            return logits
+
+        if use_evidence_integration:
+            num_samples = psames_t.shape[1]
+            drift_rate_arr = self.drift_rate_arr
             ei_logits = np.asarray(
                 [
-                    dynamics._get_ei_logits(coord[0], coord[1], seg_flag)
-                    for coord, seg_flag in zip(all_pairs, sfs_t[:, -1])
+                    dynamics._get_ei_logits(
+                        coord[0],
+                        coord[1],
+                        drift_rate=drift,
+                        sample_size=num_samples,
+                    )
+                    for coord, drift in zip(all_pairs, drift_rate_arr)
                 ]
             )
+
+            if out == "ei_logits":
+                return ei_logits
 
             ei_rts = np.asarray(
                 [
@@ -711,54 +727,97 @@ class SegmentationMap:
                 ]
             )
 
-        rts = [
-            dynamics._get_decision_rt(evidence, boundary=self.boundary)[0]
-            for evidence in logits
-        ]
+            if weighted_evidence_integration:
+                drift_rate_arr = logits[:, -1]
+                wei_logits = np.asarray(
+                    [
+                        dynamics._get_ei_logits(
+                            coord[0],
+                            coord[1],
+                            drift_rate=drift,
+                            sample_size=num_samples,
+                        )
+                        for coord, drift in zip(all_pairs, drift_rate_arr)
+                    ]
+                )
 
-        responses = [
-            dynamics._get_decision_rt(evidence, boundary=self.boundary)[1]
-            for evidence in logits
-        ]
+                if out == "wei_logits":
+                    return wei_logits
 
-        d["pseudo"] = list(range(1, len(all_pairs) + 1))
-        d["pair_idx"] = [pair_idx] * len(all_pairs)
-        d["grid_idx_0"] = [grids_idx[0]] * len(all_pairs)
-        d["grid_idx_1"] = [grids_idx[1]] * len(all_pairs)
-        if use_pointwise_rts is not None:
-            d["pointwise_rt_0"] = [
-                all_pointwise_rt_pairs[i, 0] for i in range(len(all_pairs))
+                wei_rts = np.asarray(
+                    [
+                        dynamics._get_decision_rt(evidence, boundary=self.boundary)[0]
+                        for evidence in wei_logits
+                    ]
+                )
+
+                wei_responses = np.asarray(
+                    [
+                        dynamics._get_decision_rt(evidence, boundary=self.boundary)[1]
+                        for evidence in wei_logits
+                    ]
+                )
+
+        if out == "df":
+            rts = [
+                dynamics._get_decision_rt(evidence, boundary=self.boundary)[0]
+                for evidence in logits
             ]
-            d["pointwise_rt_1"] = [
-                all_pointwise_rt_pairs[i, 1] for i in range(len(all_pairs))
+
+            auto_rts = [
+                dynamics._get_decision_rt(evidence, boundary="auto")[0]
+                for evidence in logits
             ]
-        d["np_idx_0"] = [all_pairs[i, 0] for i in range(len(all_pairs))]
-        d["np_idx_1"] = [all_pairs[i, 1] for i in range(len(all_pairs))]
-        d["image_distance"] = [
-            tb.euclidean_distance(all_pairs[i, 0], all_pairs[i, 1])
-            for i in range(len(all_pairs))
-        ]
-        d["psame_rt"] = [
-            item[int(rts[i])] if rts[i] != len(item) else item[-1]
-            for i, item in enumerate(psames_t)
-        ]
-        d["psame_final"] = [item[-1] for item in psames_t]
-        d["online_rt"] = rts
-        d["online_response"] = responses
-        if use_evidence_integration:
-            if pseudo_evidence_integration:
+
+            responses = [
+                dynamics._get_decision_rt(evidence, boundary=self.boundary)[1]
+                for evidence in logits
+            ]
+
+            auto_responses = [
+                dynamics._get_decision_rt(evidence, boundary="auto")[1]
+                for evidence in logits
+            ]
+
+            d["pseudo"] = list(range(1, len(all_pairs) + 1))
+            d["pair_idx"] = [pair_idx] * len(all_pairs)
+            d["grid_idx_0"] = [grids_idx[0]] * len(all_pairs)
+            d["grid_idx_1"] = [grids_idx[1]] * len(all_pairs)
+            if use_pointwise_rts is not None:
+                d["pointwise_rt_0"] = [
+                    all_pointwise_rt_pairs[i, 0] for i in range(len(all_pairs))
+                ]
+                d["pointwise_rt_1"] = [
+                    all_pointwise_rt_pairs[i, 1] for i in range(len(all_pairs))
+                ]
+            d["np_idx_0"] = [all_pairs[i, 0] for i in range(len(all_pairs))]
+            d["np_idx_1"] = [all_pairs[i, 1] for i in range(len(all_pairs))]
+            d["image_distance"] = [
+                tb.euclidean_distance(all_pairs[i, 0], all_pairs[i, 1])
+                for i in range(len(all_pairs))
+            ]
+            d["psame_rt"] = [
+                item[int(auto_rts[i])] if auto_rts[i] != len(item) else item[-1]
+                for i, item in enumerate(psames_t)
+            ]
+            d["psame_final"] = [item[-1] for item in psames_t]
+            d["online_rt"] = rts
+            d["online_response"] = responses
+            d["auto_rt"] = auto_rts
+            d["auto_response"] = auto_responses
+            if use_evidence_integration:
                 d["ei_rt"] = ei_rts
                 d["ei_response"] = ei_responses
-            else:
-                d["ei_rt"] = self.ei_rts[pair_idx]
-                d["ei_response"] = self.ei_responses[pair_idx]
-        d["rt_avg"] = rts
-        d["response_avg"] = responses
-        d["seg_flag"] = list(sfs_t[:, -1])
+                if weighted_evidence_integration:
+                    d["wei_rt"] = wei_rts
+                    d["wei_response"] = wei_responses
+            d["rt_avg"] = rts
+            d["response_avg"] = responses
+            d["seg_flag"] = list(sfs_t[:, -1])
 
-        df = pd.DataFrame.from_dict(d)
+            df = pd.DataFrame.from_dict(d)
 
-        return df, logits
+            return df
 
     # def _pseudo_logits(self, pair_idx, grid_idx):
 
@@ -788,6 +847,7 @@ class SegmentationMap:
         use_pointwise_rts=None,
         use_pseudocoords=None,
         use_evidence_integration=True,
+        weighted_evidence_integration=True,
     ):
         """
         Returns pairwise decision times: $\hat{t}_p^*
@@ -810,6 +870,8 @@ class SegmentationMap:
             use evidence calculated from pseudocoords as well
         use_evidence_integration : bool
             use evidence integration sampling to return an rt
+        weighted_eidence_integration : bool
+            use the strength of the decision in the evidence integration
         """
 
         coords = pairs
@@ -836,7 +898,6 @@ class SegmentationMap:
         distances = np.asarray(
             [tb.euclidean_distance(coord[0], coord[1]) for coord in coords]
         )
-        self.mode = "em"
         psames_t = np.asarray(
             [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
         )
@@ -854,10 +915,24 @@ class SegmentationMap:
         )
 
         if use_evidence_integration:
+            num_samples = self.logits.shape[1]
+            pos_drift_rate = np.mean(self.logits[:, -1][sfs_t[:, -1]])
+            neg_drift_rate = np.mean(self.logits[:, -1][~sfs_t[:, -1]])
+            self.global_drift_rate = [pos_drift_rate, neg_drift_rate]
+            drift_rate_arr = np.zeros(self.logits[:, -1].shape)
+            drift_rate_arr[sfs_t[:, -1]] += pos_drift_rate
+            drift_rate_arr[~sfs_t[:, -1]] += neg_drift_rate
+            self.drift_rate_arr = drift_rate_arr
+
             self.ei_logits = np.asarray(
                 [
-                    dynamics._get_ei_logits(coord[0], coord[1], seg_flag)
-                    for coord, seg_flag in zip(pairs, sfs_t[:, -1])
+                    dynamics._get_ei_logits(
+                        coord[0],
+                        coord[1],
+                        drift_rate=drift / num_samples,
+                        sample_size=num_samples,
+                    )
+                    for coord, drift in zip(pairs, drift_rate_arr)
                 ]
             )
 
@@ -874,6 +949,33 @@ class SegmentationMap:
                     for evidence in self.ei_logits
                 ]
             )
+            if weighted_evidence_integration:
+                drift_rate_arr = self.logits[:, -1]
+                self.wei_logits = np.asarray(
+                    [
+                        dynamics._get_ei_logits(
+                            coord[0],
+                            coord[1],
+                            drift_rate=drift / num_samples,
+                            sample_size=num_samples,
+                        )
+                        for coord, drift in zip(pairs, drift_rate_arr)
+                    ]
+                )
+
+                self.wei_rts = np.asarray(
+                    [
+                        dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+                        for evidence in self.wei_logits
+                    ]
+                )
+
+                self.wei_responses = np.asarray(
+                    [
+                        dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+                        for evidence in self.wei_logits
+                    ]
+                )
         if use_pseudocoords is not None:
             # self.pseudocoords and self.coords created here
             # default window size of 5
@@ -884,23 +986,57 @@ class SegmentationMap:
                     points, use_pseudocoords=10, sample_size=use_pseudocoords
                 )
 
-            self.pseudo_df = pd.concat(
-                [
-                    self._process_pseudocoords(
-                        i, grids_idx[i], use_pointwise_rts=use_pointwise_rts
-                    )[0]
-                    for i in range(len(grids_idx))
-                ],
-                ignore_index=True,
-            )
-
             self.pseudo_logits = np.asarray(
                 [
                     self._process_pseudocoords(
-                        i, grids_idx[i], use_pointwise_rts=use_pointwise_rts
-                    )[1]
+                        i,
+                        grids_idx[i],
+                        use_pointwise_rts=use_pointwise_rts,
+                        out="logits",
+                    )
                     for i in range(len(grids_idx))
                 ]
+            )
+
+            if use_evidence_integration:
+                self.pseudo_ei_logits = np.asarray(
+                    [
+                        self._process_pseudocoords(
+                            i,
+                            grids_idx[i],
+                            use_pointwise_rts=use_pointwise_rts,
+                            use_evidence_integration=True,
+                            out="ei_logits",
+                        )
+                        for i in range(len(grids_idx))
+                    ]
+                )
+                if weighted_evidence_integration:
+                    self.pseudo_wei_logits = np.asarray(
+                        [
+                            self._process_pseudocoords(
+                                i,
+                                grids_idx[i],
+                                use_pointwise_rts=use_pointwise_rts,
+                                use_evidence_integration=True,
+                                out="wei_logits",
+                            )
+                            for i in range(len(grids_idx))
+                        ]
+                    )
+
+            self.pseudo_df = pd.concat(
+                [
+                    self._process_pseudocoords(
+                        i,
+                        grids_idx[i],
+                        use_pointwise_rts=use_pointwise_rts,
+                        use_evidence_integration=use_evidence_integration,
+                        out="df",
+                    )
+                    for i in range(len(grids_idx))
+                ],
+                ignore_index=True,
             )
 
             mean_logits = (
@@ -920,6 +1056,11 @@ class SegmentationMap:
             for evidence in self.logits
         ]
 
+        auto_rts = [
+            dynamics._get_decision_rt(evidence, boundary="auto")[0]
+            for evidence in self.logits
+        ]
+
         if use_pseudocoords is not None:
             rts_avg = [
                 dynamics._get_decision_rt(evidence, boundary=boundary)[0]
@@ -933,6 +1074,11 @@ class SegmentationMap:
 
         responses = [
             dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+            for evidence in self.logits
+        ]
+
+        auto_responses = [
+            dynamics._get_decision_rt(evidence, boundary="auto")[1]
             for evidence in self.logits
         ]
 
@@ -950,18 +1096,23 @@ class SegmentationMap:
         d["np_idx_1"] = [item[1] for item in pairs]
         d["image_distance"] = distances
         d["psame_rt"] = [
-            item[int(rts[i])] if rts[i] != len(item) else item[-1]
+            item[int(auto_rts[i])] if rts[i] != len(item) else item[-1]
             for i, item in enumerate(psames_t)
         ]
         d["psame_final"] = [item[-1] for item in psames_t]
         d["online_rt"] = rts
         d["online_response"] = responses
+        d["auto_rt"] = auto_rts
+        d["auto_response"] = auto_responses
         if use_pseudocoords is not None:
             d["rt_avg"] = rts_avg
             d["response_avg"] = responses_avg
         if use_evidence_integration:
             d["ei_rt"] = self.ei_rts
             d["ei_response"] = self.ei_responses
+            if weighted_evidence_integration:
+                d["wei_rt"] = self.wei_rts
+                d["wei_response"] = self.wei_responses
 
         d["seg_flag"] = list(sfs_t[:, -1])
 
@@ -977,6 +1128,7 @@ class SegmentationMap:
         return df_out
 
     def reapply_bounds(self, boundary, key=None):
+        # TODO: evidence integration does not work with collapsing bounds
 
         if key is not None:
             key = key
@@ -990,6 +1142,8 @@ class SegmentationMap:
                 boundary = self._get_collapsing_bounds(boundary["collapsing"])
         else:
             boundary = [-1, 1]
+
+        self.boundary = boundary
 
         rts = [
             dynamics._get_decision_rt(evidence, boundary=boundary)[0]
@@ -1009,8 +1163,6 @@ class SegmentationMap:
             for evidence in self.mean_logits
         ]
 
-        assert hasattr(self, "pseudocoords") and hasattr(self, "pseudo_logits")
-
         if hasattr(self, "pseudocoords") and hasattr(self, "pseudo_logits"):
             rts_pseudo = [
                 dynamics._get_decision_rt(evidence, boundary=boundary)[0]
@@ -1020,15 +1172,70 @@ class SegmentationMap:
             ]
 
             responses_pseudo = [
-                dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+                dynamics._get_decision_rt(evidence, boundary=boundary)[1]
                 for evidence in self.pseudo_logits.reshape(
                     (-1, self.pseudo_logits.shape[-1])
                 )
             ]
 
+        if hasattr(self, "ei_logits"):
+            ei_rts = [
+                dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+                for evidence in self.ei_logits
+            ]
+
+            ei_responses = [
+                dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+                for evidence in self.ei_logits
+            ]
+
+            if hasattr(self, "wei_logits"):
+                wei_rts = [
+                    dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+                    for evidence in self.wei_logits
+                ]
+
+                wei_responses = [
+                    dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+                    for evidence in self.wei_logits
+                ]
+
+            if hasattr(self, "pseudo_ei_logits"):
+                ei_rts_pseudo = [
+                    dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+                    for evidence in self.pseudo_ei_logits.reshape(
+                        (-1, self.pseudo_ei_logits.shape[-1])
+                    )
+                ]
+
+                ei_responses_pseudo = [
+                    dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+                    for evidence in self.pseudo_ei_logits.reshape(
+                        (-1, self.pseudo_ei_logits.shape[-1])
+                    )
+                ]
+                if hasattr(self, "pseudo_wei_logits"):
+                    wei_rts_pseudo = [
+                        dynamics._get_decision_rt(evidence, boundary=boundary)[0]
+                        for evidence in self.pseudo_wei_logits.reshape(
+                            (-1, self.pseudo_wei_logits.shape[-1])
+                        )
+                    ]
+
+                    wei_responses_pseudo = [
+                        dynamics._get_decision_rt(evidence, boundary=boundary)[1]
+                        for evidence in self.pseudo_wei_logits.reshape(
+                            (-1, self.pseudo_wei_logits.shape[-1])
+                        )
+                    ]
+
         df_new_bounds = self.dynamics_pairwise_df.copy()
         df_new_bounds["online_rt"] = rts + rts_pseudo
         df_new_bounds["online_response"] = responses + responses_pseudo
+        df_new_bounds["ei_rt"] = ei_rts + ei_rts_pseudo
+        df_new_bounds["ei_response"] = ei_responses + ei_responses_pseudo
+        df_new_bounds["wei_rt"] = wei_rts + wei_rts_pseudo
+        df_new_bounds["wei_response"] = wei_responses + wei_responses_pseudo
         df_new_bounds["rt_avg"] = rts_avg + rts_pseudo
         df_new_bounds["response_avg"] = responses_avg + rts_pseudo
         df_new_bounds["bounds"] = [key] * (len(rts) + len(rts_pseudo))
