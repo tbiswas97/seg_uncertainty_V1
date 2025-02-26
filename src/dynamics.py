@@ -88,8 +88,10 @@ def check_derivatives(index, d1, d2, epsilon=1):
     elif d1[index] < epsilon and d1[index] > 0:
         if d2[index] > epsilon:  # local minimum
             return 0
-        else:
+        elif d2[index] < 0:
             return 1
+        else:
+            return 0
     elif d1[index] < epsilon and d1[index] < -(epsilon):
         return 0
 
@@ -293,19 +295,31 @@ def _get_entropy(coord1, coord2, SegMap):
     return entropy(psame_t[..., np.newaxis], axis=1)
 
 
-def _get_ei_logits(coord1, coord2, seg_flag, multiplier=5, eps=1e-4, sample_size=20):
+def _get_ei_logits(
+    coord1,
+    coord2,
+    starting_point=0,
+    drift_rate=None,
+    noise=5,
+    eps=1e-4,
+    sample_size=20,
+):
 
-    get_logit = lambda x: np.log(x) - np.log(1 - x)
+    if drift_rate is not None:
+        drift_rate = drift_rate
 
-    if seg_flag:
-        starting_point = get_logit(1 - eps)
-    else:
-        starting_point = get_logit(eps)
+    starting_point_arr = np.zeros(sample_size) + starting_point
 
-    samples = starting_point + multiplier * np.random.normal(0, 1, size=sample_size)
-    integrated_evidence = np.cumsum(samples) / np.arange(1, len(samples) + 1)
+    samples = drift_rate + noise * np.random.normal(0, 1, size=sample_size)
+    integrated_evidence = np.cumsum(samples)
 
-    return integrated_evidence
+    assert len(starting_point_arr) == len(integrated_evidence)
+
+    starting_point_arr[1:] = integrated_evidence[:-1]
+
+    out = starting_point_arr
+
+    return out
 
 
 def _get_logit(coord1, coord2, psame_t, evidence_type="logit"):
@@ -327,7 +341,7 @@ def _get_logit(coord1, coord2, psame_t, evidence_type="logit"):
         return logit
 
 
-def _get_decision_rt(evidence, boundary=None):
+def _get_decision_rt(evidence, boundary=None, c=1, window_size=3):
     """
     Calculate decision reaction time from evidence and boundary
 
@@ -336,6 +350,10 @@ def _get_decision_rt(evidence, boundary=None):
     evidence : array
         logits per algorithm iteration
     boundary : array
+        element 1 is the positive boundary, element 2 is the negative boundary
+    c : int
+        multiplier of evidence minimum that is used as a threshold for the first
+        derivative
 
     Returns:
     ---------
@@ -343,36 +361,83 @@ def _get_decision_rt(evidence, boundary=None):
         The iteration where the evidence crosses the boundary
     response : bool
     """
-    if boundary is not None:
-        boundary = boundary
-    else:
-        # default value for boundary
-        boundary = [1, -1]
+    if boundary == "auto":
+        abs_evidence = np.abs(evidence)
+        thresh = c * np.min(abs_evidence)
+        smooth_evidence = sliding_window_mean(evidence, 3)
+        smooth_evidence_d1 = np.abs(sliding_window_deriv1(evidence, 3))
+        smooth_evidence_d2 = sliding_window_deriv2(abs_evidence, 3)
 
-    response = None
+        d1_windows = sliding_window_view(smooth_evidence_d1, window_size)
+        check_deriv = [(window < thresh).all() for window in d1_windows[:]]
 
-    try:
-        bound_idx = np.where((evidence > boundary[0]) | (evidence < boundary[1]))[0][0]
-        decision = evidence[bound_idx]
-        if decision > 0:
-            response = True
-        elif decision < 0:
-            response = False
-        rt = bound_idx
-    except:
-        rt = len(evidence)
-        decision = evidence[-1]
-        if decision > 0:
-            response = True
-        elif decision < 0:
-            response = False
+        possible_rts = np.where(check_deriv)[0]
+        if len(possible_rts) > 0:
+            rt = possible_rts[0]
         else:
-            response = None
+            rt = np.argmax(np.abs(smooth_evidence))
 
-    if response is not None:
+        if smooth_evidence[rt] > 0:
+            response = True
+        else:
+            response = False
         return rt, response
+
+        # return rt, response
+        # possible_idxs = range(len(smooth_evidence))
+        # out = -1
+        # thresh = np.min(abs_evidence)
+        # for idx in possible_idxs:
+        # if check_derivatives(
+        # idx, smooth_evidence_d1, smooth_evidence_d2, epsilon=thresh
+        # ):
+        # out = idx
+        # break
+        # else:
+        # continue
+        # if out == -1:
+        # out = np.argmax(smooth_evidence)
+
+        # rt = out
+        # if evidence[rt] > 0:
+        # response = True
+        # else:
+        # response = False
+
+        # return rt, response
     else:
-        return rt, np.nan
+        if boundary is not None:
+            boundary = boundary
+        else:
+            # default value for boundary
+            boundary = [1, -1]
+
+        response = None
+
+        try:
+            bound_idx = np.where((evidence > boundary[0]) | (evidence < boundary[1]))[
+                0
+            ][0]
+            decision = evidence[bound_idx]
+            if decision > 0:
+                response = True
+            elif decision < 0:
+                response = False
+            rt = bound_idx
+        except:
+            rt = len(evidence)
+            decision = evidence[-1]
+            if decision > 0:
+                response = True
+            elif decision < 0:
+                response = False
+            else:
+                response = None
+
+        if response is not None:
+            return rt, response
+        else:
+            return rt, np.nan
 
 
 def df_to_rt_hist(df, rt_col="online_rt", groupby="seg_flag", nbins=20):
@@ -384,7 +449,7 @@ def df_to_rt_hist(df, rt_col="online_rt", groupby="seg_flag", nbins=20):
 
 
 def df_to_rt_vs_distance(
-    df, rt_col="online_rt", kernel_size=10, groupby="seg_flag", _sample=None
+    df, rt_col="online_rt", kernel_size=10, groupby="seg_flag", _sample=None, ax=None
 ):
     df = df.loc[:, ["image_distance", rt_col, groupby]]
 
@@ -417,7 +482,11 @@ def df_to_rt_vs_distance(
     d["plot_yes"] = (dist_smooth_y, rt_smooth_y)
     d["plot_no"] = (dist_smooth_n, rt_smooth_n)
 
-    plt.plot(d["plot_yes"][0], d["plot_yes"][1], c="green")
-    plt.plot(d["plot_no"][0], d["plot_no"][1], c="orange")
+    if ax is not None:
+        ax.plot(d["plot_yes"][0], d["plot_yes"][1], c="green")
+        ax.plot(d["plot_no"][0], d["plot_no"][1], c="orange")
+    else:
+        plt.plot(d["plot_yes"][0], d["plot_yes"][1], c="green")
+        plt.plot(d["plot_no"][0], d["plot_no"][1], c="orange")
 
     return d
