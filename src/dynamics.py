@@ -341,7 +341,7 @@ def _get_logit(coord1, coord2, psame_t, evidence_type="logit"):
         return logit
 
 
-def _get_decision_rt(evidence, boundary=None, c=1, window_size=3):
+def _get_decision_rt(evidence, deriv=None, boundary=None, c=1, window_size=3):
     """
     Calculate decision reaction time from evidence and boundary
 
@@ -363,10 +363,10 @@ def _get_decision_rt(evidence, boundary=None, c=1, window_size=3):
     """
     if boundary == "auto":
         abs_evidence = np.abs(evidence)
-        thresh = c * np.min(abs_evidence)
-        smooth_evidence = sliding_window_mean(evidence, 3)
-        smooth_evidence_d1 = np.abs(sliding_window_deriv1(evidence, 3))
-        smooth_evidence_d2 = sliding_window_deriv2(abs_evidence, 3)
+        thresh = c * np.mean(abs_evidence)
+        smooth_evidence = evidence
+        assert deriv is not None
+        smooth_evidence_d1 = deriv
 
         d1_windows = sliding_window_view(smooth_evidence_d1, window_size)
         check_deriv = [(window < thresh).all() for window in d1_windows[:]]
