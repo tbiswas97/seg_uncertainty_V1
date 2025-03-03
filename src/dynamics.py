@@ -341,7 +341,14 @@ def _get_logit(coord1, coord2, psame_t, evidence_type="logit"):
         return logit
 
 
-def _get_decision_rt(evidence, deriv=None, boundary=None, c=1, window_size=3):
+def _get_decision_rt(
+    evidence,
+    deriv=None,
+    boundary=None,
+    c=1,
+    window_size=3,
+    return_responses=True,
+):
     """
     Calculate decision reaction time from evidence and boundary
 
@@ -349,11 +356,17 @@ def _get_decision_rt(evidence, deriv=None, boundary=None, c=1, window_size=3):
     -----------
     evidence : array
         logits per algorithm iteration
-    boundary : array
+    boundary : array-like
         element 1 is the positive boundary, element 2 is the negative boundary
-    c : int
+    c : array
         multiplier of evidence minimum that is used as a threshold for the first
         derivative
+    return_responses : bool
+        if True, then return the decision (response) at rt
+    fit_params : dict
+        dict of form {"condition":boundary}, only applicable if boundary == "fit"
+    fit_param_key : str:
+        string to use in fit_params, only applicable if boundary == "fit"
 
     Returns:
     ---------
@@ -362,8 +375,9 @@ def _get_decision_rt(evidence, deriv=None, boundary=None, c=1, window_size=3):
     response : bool
     """
     if boundary == "auto":
+        assert type(c) == np.ndarray
         abs_evidence = np.abs(evidence)
-        thresh = c * np.mean(abs_evidence)
+        thresh = c[0] * (np.mean(abs_evidence))
         smooth_evidence = evidence
         assert deriv is not None
         smooth_evidence_d1 = deriv
@@ -372,15 +386,28 @@ def _get_decision_rt(evidence, deriv=None, boundary=None, c=1, window_size=3):
         check_deriv = [(window < thresh).all() for window in d1_windows[:]]
 
         possible_rts = np.where(check_deriv)[0]
+
+        if len(c) > 1:
+            if len(possible_rts) > 0:
+                static_evidence = abs_evidence[possible_rts]
+                more_possible_rts = np.where(static_evidence > c[1])[0]
+                if len(more_possible_rts) > 0:
+                    possible_rts = possible_rts[more_possible_rts]
+            else:
+                rt = np.argmax(np.abs(smooth_evidence))
+
         if len(possible_rts) > 0:
             rt = possible_rts[0]
         else:
             rt = np.argmax(np.abs(smooth_evidence))
 
-        if smooth_evidence[rt] > 0:
-            response = True
-        else:
-            response = False
+        response = None
+        if return_responses:
+            if smooth_evidence[rt] > 0:
+                response = True
+            else:
+                response = False
+
         return rt, response
 
         # return rt, response
