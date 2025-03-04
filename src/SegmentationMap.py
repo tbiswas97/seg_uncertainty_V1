@@ -879,6 +879,57 @@ class SegmentationMap:
 
     # return self.pseudologits
 
+    def _get_ei_info(self, points, pairs, grid_idx):
+        pass
+
+    def get_iter_info(self, points, pairs, grid_idx):
+        """
+        Return per-iteration information that will be used to calculate reaction times
+
+        Parameters:
+        -----------
+        points : array-like
+            the set of np coords used, not used here
+        pairs : array like
+            the set of pairs (ie pairs of np coords) for which decisions exist
+            a subset of all possible pairs
+        grids_idx : array like
+            the grid index for each pair, 1-indexed, not 0!
+
+        """
+
+        coords = pairs
+        grids_idx = grid_idx.astype("int")
+
+        self.grids_idx = grids_idx
+
+        self.distances = np.asarray(
+            [tb.euclidean_distance(coord[0], coord[1]) for coord in coords]
+        )
+        self.psames_t = np.asarray(
+            [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
+        )
+
+        self.sfs_t = np.asarray(
+            [dynamics._get_seg_flag_t(coord[0], coord[1], self) for coord in coords]
+        )
+        self.logits = np.asarray(
+            [
+                dynamics._get_logit(coord[0], coord[1], psame_t)
+                for coord, psame_t in zip(coords, self.psames_t)
+            ]
+        )
+
+        self.smooth_logits = [
+            dynamics.sliding_window_mean(logit, 3) for logit in self.logits
+        ]
+
+        self.logit_deriv = [
+            np.abs(dynamics.sliding_window_deriv1(logit, 3)) for logit in self.logits
+        ]
+
+        pass
+
     def get_decision_rts(
         self,
         points,
@@ -1222,20 +1273,21 @@ class SegmentationMap:
             else:
                 return auto_rts
         if return_df:
-            self.pseudo_df = pd.concat(
-                [
-                    self._process_pseudocoords(
-                        i,
-                        grids_idx[i],
-                        use_pointwise_rts=use_pointwise_rts,
-                        use_evidence_integration=use_evidence_integration,
-                        weighted_evidence_integration=weighted_evidence_integration,
-                        out="df",
-                    )
-                    for i in range(len(grids_idx))
-                ],
-                ignore_index=True,
-            )
+            if False:
+                self.pseudo_df = pd.concat(
+                    [
+                        self._process_pseudocoords(
+                            i,
+                            grids_idx[i],
+                            use_pointwise_rts=use_pointwise_rts,
+                            use_evidence_integration=use_evidence_integration,
+                            weighted_evidence_integration=weighted_evidence_integration,
+                            out="df",
+                        )
+                        for i in range(len(grids_idx))
+                    ],
+                    ignore_index=True,
+                )
             d = {}
             # CREATE DF FROM PARAMETERS
             if use_pseudocoords is not None:
@@ -1434,15 +1486,8 @@ class SegmentationMap:
             elif col == "wei_rt":
                 rt = wei_rts
                 rts_pseudo = wei_rts_pseudo
-            rt_mean = np.mean(rts_pseudo, axis=1)
 
-            pseudo_weight = (self.pseudocoords_sample_size) ** 2 / (
-                (self.pseudocoords_sample_size) ** 2 + 1
-            )
-
-            rts = (1 - pseudo_weight) * np.asarray(rt) + pseudo_weight * np.asarray(
-                rt_mean
-            )
+            rts = self._avg_with_pseudo(rt, rts_pseudo)
 
             return rts
 
@@ -1547,7 +1592,24 @@ class SegmentationMap:
 
             return df_new_bounds
 
-    def reapply_automult(self, automult, return_df=True, return_responses=True):
+    def reapply_automult(
+        self, automult, return_df=True, return_responses=True, use_pseudo_average=True
+    ):
+        """
+        Apply (or reapply) the convergence threshold
+
+        Parameters:
+        -----------
+        automult : np.array
+            The parameter used to compute the rt, must be an array
+        return_df : bool
+            if True, return in the form of a DataFrame
+        return_responses : bool
+            if True, return responses as well as reaction times
+        use_pseudo_average : bool
+            if True, averages regular coordinates with pseudo coordinates before output
+            if False, concatenates regular coordinates with pseudo coordinates before output
+        """
         self.auto_mult = automult
 
         if return_df:
@@ -1602,7 +1664,6 @@ class SegmentationMap:
                         )
                     ]
                 ).reshape(self.pseudo_logits_smooth.shape[:-1])
-                auto_rts_pseudo_mean = np.mean(auto_rts_pseudo, axis=1)
 
             if return_responses:
                 auto_responses_pseudo = [
@@ -1625,14 +1686,31 @@ class SegmentationMap:
 
             return df_new
         else:
-            pseudo_weight = (self.pseudocoords_sample_size) ** 2 / (
-                (self.pseudocoords_sample_size) ** 2 + 1
-            )
-            auto_rts = (1 - pseudo_weight) * np.asarray(
-                auto_rts
-            ) + pseudo_weight * np.asarray(auto_rts_pseudo_mean)
+            if use_pseudo_average:
+                auto_rts = self._avg_with_pseudo(auto_rts, auto_rts_pseudo)
+                return auto_rts
+            else:
+                return np.concatenate([auto_rts, np.ravel(auto_rts_pseudo)])
 
-            return auto_rts
+    def _avg_with_pseudo(self, rts, rts_pseudo):
+        """
+        Averages rts at coordinate with rts at pseudo-coordinates
+
+        Parameters:
+        ------------
+        rts : array-like, shape (n_pairs)
+        rts_pseudo : array shape (n_pairs,n_pseudcoords)
+        """
+        rt_pseudo_mean = rts_pseudo.mean(axis=1)
+        # There are n^2 pseudocoordinates
+        pseudo_weight = (self.pseudocoords_sample_size) ** 2 / (
+            (self.pseudocoords_sample_size) ** 2 + 1
+        )
+        rts = (1 - pseudo_weight) * np.asarray(rts) + pseudo_weight * np.asarray(
+            rt_pseudo_mean
+        )
+
+        return rts
 
     def get_decision_rts_layers(
         self,
