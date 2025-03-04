@@ -518,6 +518,7 @@ class SegmentationMap:
 
         Returns:
         -------
+        None
         """
         self.pseudocoords_sample_size = sample_size
         canvas = np.zeros(self.im.shape[:-1]).astype("int")
@@ -678,12 +679,12 @@ class SegmentationMap:
         neigh_b = self.pseudocoords[grids_idx[1] - 1]
         all_pairs = np.asarray([[a, b] for a in neigh_a for b in neigh_b])
 
-        if use_pointwise_rts is not None:
-            pointwise_rts_a = self.pseudo_pointwise_rts[grids_idx[0] - 1]
-            pointwise_rts_b = self.pseudo_pointwise_rts[grids_idx[1] - 1]
-            all_pointwise_rt_pairs = np.asarray(
-                [[a, b] for a in pointwise_rts_a for b in pointwise_rts_b]
-            )
+        # if use_pointwise_rts:
+        # pointwise_rts_a = self.pseudo_pointwise_rts[grids_idx[0] - 1]
+        # pointwise_rts_b = self.pseudo_pointwise_rts[grids_idx[1] - 1]
+        # all_pointwise_rt_pairs = np.asarray(
+        # [[a, b] for a in pointwise_rts_a for b in pointwise_rts_b]
+        # )
 
         psames_t = np.asarray(
             [dynamics._get_psame_t(pair[0], pair[1], self) for pair in all_pairs]
@@ -879,10 +880,122 @@ class SegmentationMap:
 
     # return self.pseudologits
 
-    def _get_ei_info(self, points, pairs, grid_idx):
-        pass
+    def get_ei_info(self, pairs, noise=5, weighted=True):
+        """
+        Return per-iteration evidence integration information
 
-    def get_iter_info(self, points, pairs, grid_idx):
+        Parameters:
+        -----------
+        pairs : array-like
+            placeholder, the same input as in get_iter_info
+        noise : float
+            the level of noise (multiplier of variance in Gaussian), used in
+                sampling
+        weighted :
+            returns per-iteration evidence for a weighted evidence integration
+                scheme
+        """
+        assert hasattr(self, "logits"), "Must run iterinfo before ei info"
+
+        num_samples = self.logits.shape[1]
+        if True:
+            pos_drift_rate = np.mean(self.logits[:, -1][self.sfs_t[:, -1]])
+            neg_drift_rate = np.mean(self.logits[:, -1][~self.sfs_t[:, -1]])
+            self.global_drift_rate = [pos_drift_rate, neg_drift_rate]
+            drift_rate_arr = np.zeros(self.logits[:, -1].shape)
+            drift_rate_arr[self.sfs_t[:, -1]] += pos_drift_rate
+            drift_rate_arr[~self.sfs_t[:, -1]] += neg_drift_rate
+
+            self.ei_logits = np.asarray(
+                [
+                    dynamics._get_ei_logits(
+                        coord[0],
+                        coord[1],
+                        drift_rate=drift / num_samples,
+                        sample_size=num_samples,
+                        noise=noise,
+                    )
+                    for coord, drift in zip(pairs, drift_rate_arr)
+                ]
+            )
+
+        if weighted:
+            drift_rate_arr = np.zeros(self.logits[:, -1].shape)
+            drift_rate_arr = self.logits[:, -1]
+            self.wei_logits = np.asarray(
+                [
+                    dynamics._get_ei_logits(
+                        coord[0],
+                        coord[1],
+                        drift_rate=drift / num_samples,
+                        sample_size=num_samples,
+                    )
+                    for coord, drift in zip(pairs, drift_rate_arr)
+                ]
+            )
+
+        return None
+
+    def _get_pseudo_iter_info(self, points, pairs, grid_idx, n_pseudocoords=10):
+        """
+
+        Return per-iteration information for a random set of pseudo coordinates.
+        Each set of pseudo-coordinates is randomly selected from around a coordinate in points.
+        Pseudo-logits struct will have shape (n_pairs,n_pseudocoords,n_iter)
+
+        Parameters:
+        -----------
+        points : array-like
+            points to generate the pseudocoords around
+        pairs : array-like
+            not used for pseudocoordinates
+        grid_idx : array-like
+            used for indexing pseudocoordinates
+        n_pseudocoords : int
+            the number of pseudocoords to use around each point
+        """
+        if n_pseudocoords is not None:
+            self._create_pseudocoords(points, sample_size=n_pseudocoords)
+
+            self.pseudo_logits = np.asarray(
+                [
+                    self._process_pseudocoords(
+                        i,
+                        grid_idx[i],
+                        use_pointwise_rts=False,
+                        out="logits",
+                    )
+                    for i in range(len(grid_idx))
+                ]
+            )
+
+            self.pseudo_logits_smooth = np.asarray(
+                [
+                    self._process_pseudocoords(
+                        i,
+                        grid_idx[i],
+                        use_pointwise_rts=False,
+                        out="smooth_logits",
+                    )
+                    for i in range(len(grid_idx))
+                ]
+            )
+
+            self.pseudo_logits_deriv = np.asarray(
+                [
+                    self._process_pseudocoords(
+                        i,
+                        grid_idx[i],
+                        use_pointwise_rts=False,
+                        out="logit_derivs",
+                    )
+                    for i in range(len(grid_idx))
+                ]
+            )
+
+        return None
+
+    def get_iter_info(self, points, pairs, grid_idx, n_pseudocoords=10):
         """
         Return per-iteration information that will be used to calculate reaction times
 
@@ -898,37 +1011,44 @@ class SegmentationMap:
 
         """
 
-        coords = pairs
-        grids_idx = grid_idx.astype("int")
+        # This block gets info for all coordinates that are NOT pseudocoords
+        if True:
+            coords = pairs
+            grids_idx = grid_idx.astype("int")
 
-        self.grids_idx = grids_idx
+            self.grids_idx = grids_idx
 
-        self.distances = np.asarray(
-            [tb.euclidean_distance(coord[0], coord[1]) for coord in coords]
-        )
-        self.psames_t = np.asarray(
-            [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
-        )
+            self.distances = np.asarray(
+                [tb.euclidean_distance(coord[0], coord[1]) for coord in coords]
+            )
+            self.psames_t = np.asarray(
+                [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
+            )
 
-        self.sfs_t = np.asarray(
-            [dynamics._get_seg_flag_t(coord[0], coord[1], self) for coord in coords]
-        )
-        self.logits = np.asarray(
-            [
-                dynamics._get_logit(coord[0], coord[1], psame_t)
-                for coord, psame_t in zip(coords, self.psames_t)
+            self.sfs_t = np.asarray(
+                [dynamics._get_seg_flag_t(coord[0], coord[1], self) for coord in coords]
+            )
+            self.logits = np.asarray(
+                [
+                    dynamics._get_logit(coord[0], coord[1], psame_t)
+                    for coord, psame_t in zip(coords, self.psames_t)
+                ]
+            )
+
+            self.smooth_logits = [
+                dynamics.sliding_window_mean(logit, 3) for logit in self.logits
             ]
-        )
 
-        self.smooth_logits = [
-            dynamics.sliding_window_mean(logit, 3) for logit in self.logits
-        ]
+            self.logit_deriv = [
+                np.abs(dynamics.sliding_window_deriv1(logit, 3))
+                for logit in self.logits
+            ]
 
-        self.logit_deriv = [
-            np.abs(dynamics.sliding_window_deriv1(logit, 3)) for logit in self.logits
-        ]
-
-        pass
+        # This block gets info for all coordinates that are pseudocoords
+        if n_pseudocoords is not None:
+            self._get_pseudo_iter_info(
+                points, pairs, grid_idx, n_pseudocoords=n_pseudocoords
+            )
 
     def get_decision_rts(
         self,
@@ -1339,7 +1459,13 @@ class SegmentationMap:
             return df_out
 
     def reapply_bounds(
-        self, boundary, col=None, key=None, return_df=True, return_responses=True
+        self,
+        boundary,
+        col=None,
+        key=None,
+        return_df=True,
+        return_responses=True,
+        use_pseudo_average=True,
     ):
         # TODO: evidence integration does not work with collapsing bounds
 
@@ -1487,7 +1613,10 @@ class SegmentationMap:
                 rt = wei_rts
                 rts_pseudo = wei_rts_pseudo
 
-            rts = self._avg_with_pseudo(rt, rts_pseudo)
+            if use_pseudo_average:
+                rts = self._avg_with_pseudo(rt, rts_pseudo)
+            else:
+                rts = np.concatenate([rts, np.ravel(rts_pseudo)])
 
             return rts
 
