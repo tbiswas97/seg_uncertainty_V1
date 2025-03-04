@@ -631,6 +631,42 @@ class SegmentationMap:
 
         return self.pointwise_rts
 
+    def _process_pseudocoords_ei(self, pair_idx, grid_idx, out="ei_logits"):
+
+        neigh_a = self.pseudocoords[grid_idx[0] - 1]
+        neigh_b = self.pseudocoords[grid_idx[1] - 1]
+        all_pairs = np.asarray([[a, b] for a in neigh_a for b in neigh_b])
+
+        num_samples = self.logits.shape[1]
+        drift_rate_arr = self.drift_rate_arr
+
+        if out == "ei_logits":
+            ei_logits = np.asarray(
+                [
+                    dynamics._get_ei_logits(
+                        coord[0],
+                        coord[1],
+                        drift_rate=drift,
+                        sample_size=num_samples,
+                    )
+                    for coord, drift in zip(all_pairs, drift_rate_arr)
+                ]
+            )
+
+            return ei_logits
+        elif out == "wei_logits":
+            drift_rate_arr = self.pseudo_logits[pair_idx][:, -1]
+            wei_logits = np.asarray(
+                [
+                    dynamics._get_ei_logits(
+                        coord[0], coord[1], drift_rate=drift, sample_size=num_samples
+                    )
+                    for coord, drift in zip(all_pairs, drift_rate_arr)
+                ]
+            )
+
+            return wei_logits
+
     def _process_pseudocoords(
         self,
         pair_idx,
@@ -700,19 +736,20 @@ class SegmentationMap:
             ]
         )
 
-        smooth_logits = np.asarray(
-            [dynamics.sliding_window_mean(logit, 3) for logit in logits]
-        )
-
-        logit_derivs = [
-            np.abs(dynamics.sliding_window_deriv1(logit, 3)) for logit in self.logits
-        ]
-
         if out == "logits":
             return logits
+
         if out == "smooth_logits":
+            smooth_logits = np.asarray(
+                [dynamics.sliding_window_mean(logit, 3) for logit in logits]
+            )
             return smooth_logits
+
         if out == "logit_derivs":
+            logit_derivs = [
+                np.abs(dynamics.sliding_window_deriv1(logit, 3))
+                for logit in self.logits
+            ]
             return logit_derivs
 
         if use_evidence_integration:
@@ -879,6 +916,35 @@ class SegmentationMap:
     # self.pseudologits = np.asarray(pseudologits)
 
     # return self.pseudologits
+    def _get_pseudo_ei_info(self):
+
+        if hasattr(self, "pseudocoords"):
+            self.pseudo_ei_logits = np.asarray(
+                [
+                    self._process_pseudocoords_ei(
+                        i,
+                        self.grids_idx[i],
+                        use_pointwise_rts=False,
+                        use_evidence_integration=True,
+                        out="ei_logits",
+                    )
+                    for i in range(len(self.grids_idx))
+                ]
+            )
+
+            if hasattr(self, "wei_logits"):
+                self.pseudo_wei_logits = np.asarray(
+                    [
+                        self._process_pseudocoords_ei(
+                            i,
+                            self.grids_idx[i],
+                            use_pointwise_rts=False,
+                            use_evidence_integration=True,
+                            out="wei_logits",
+                        )
+                        for i in range(len(self.grids_idx))
+                    ]
+                )
 
     def get_ei_info(self, pairs, noise=5, weighted=True):
         """
@@ -933,6 +999,9 @@ class SegmentationMap:
                     for coord, drift in zip(pairs, drift_rate_arr)
                 ]
             )
+
+        if hasattr(self, "pseudocoords"):
+            self._get_pseudo_ei_info(self)
 
         return None
 
