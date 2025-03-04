@@ -521,6 +521,7 @@ class SegmentationMap:
         None
         """
         self.pseudocoords_sample_size = sample_size
+        self.n_pseudocoords = sample_size**2
         canvas = np.zeros(self.im.shape[:-1]).astype("int")
 
         # window around points
@@ -924,8 +925,6 @@ class SegmentationMap:
                     self._process_pseudocoords_ei(
                         i,
                         self.grids_idx[i],
-                        use_pointwise_rts=False,
-                        use_evidence_integration=True,
                         out="ei_logits",
                     )
                     for i in range(len(self.grids_idx))
@@ -938,8 +937,6 @@ class SegmentationMap:
                         self._process_pseudocoords_ei(
                             i,
                             self.grids_idx[i],
-                            use_pointwise_rts=False,
-                            use_evidence_integration=True,
                             out="wei_logits",
                         )
                         for i in range(len(self.grids_idx))
@@ -972,6 +969,8 @@ class SegmentationMap:
             drift_rate_arr[self.sfs_t[:, -1]] += pos_drift_rate
             drift_rate_arr[~self.sfs_t[:, -1]] += neg_drift_rate
 
+            self.drift_rate_arr = drift_rate_arr
+
             self.ei_logits = np.asarray(
                 [
                     dynamics._get_ei_logits(
@@ -1001,7 +1000,7 @@ class SegmentationMap:
             )
 
         if hasattr(self, "pseudocoords"):
-            self._get_pseudo_ei_info(self)
+            self._get_pseudo_ei_info()
 
         return None
 
@@ -1083,6 +1082,7 @@ class SegmentationMap:
         # This block gets info for all coordinates that are NOT pseudocoords
         if True:
             coords = pairs
+            self.n_pairs = len(pairs)
             grids_idx = grid_idx.astype("int")
 
             self.grids_idx = grids_idx
@@ -1532,8 +1532,8 @@ class SegmentationMap:
         boundary,
         col=None,
         key=None,
-        return_df=True,
-        return_responses=True,
+        return_df=False,
+        return_responses=False,
         use_pseudo_average=True,
     ):
         # TODO: evidence integration does not work with collapsing bounds
@@ -1685,11 +1685,11 @@ class SegmentationMap:
             if use_pseudo_average:
                 rts = self._avg_with_pseudo(rt, rts_pseudo)
             else:
-                rts = np.concatenate([rts, np.ravel(rts_pseudo)])
+                rts = np.concatenate([rt, np.ravel(rts_pseudo)])
 
             return rts
 
-        # if col is not then do all columns
+        # if col is None then do all columns
         else:
             rts = [
                 dynamics._get_decision_rt(evidence, boundary=boundary)[0]
@@ -1791,7 +1791,7 @@ class SegmentationMap:
             return df_new_bounds
 
     def reapply_automult(
-        self, automult, return_df=True, return_responses=True, use_pseudo_average=True
+        self, automult, return_df=False, return_responses=False, use_pseudo_average=True
     ):
         """
         Apply (or reapply) the convergence threshold
