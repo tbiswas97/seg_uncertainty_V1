@@ -296,8 +296,6 @@ def _get_entropy(coord1, coord2, SegMap):
 
 
 def _get_ei_logits(
-    coord1,
-    coord2,
     starting_point=0,
     drift_rate=None,
     noise=5,
@@ -347,7 +345,8 @@ def _get_decision_rt(
     boundary=None,
     c=1,
     window_size=3,
-    return_responses=True,
+    return_responses=False,
+    failure="argmax",
 ):
     """
     Calculate decision reaction time from evidence and boundary
@@ -394,12 +393,18 @@ def _get_decision_rt(
                 if len(more_possible_rts) > 0:
                     possible_rts = possible_rts[more_possible_rts]
             else:
-                rt = np.argmax(np.abs(smooth_evidence))
+                if failure == "argmax":
+                    rt = np.argmax(np.abs(smooth_evidence))
+                else:
+                    rt = len(smooth_evidence)
 
         if len(possible_rts) > 0:
             rt = possible_rts[0]
         else:
-            rt = np.argmax(np.abs(smooth_evidence))
+            if failure == "argmax":
+                rt = np.argmax(np.abs(smooth_evidence))
+            else:
+                rt = len(smooth_evidence)
 
         response = None
         if return_responses:
@@ -452,7 +457,10 @@ def _get_decision_rt(
                 response = False
             rt = bound_idx
         except:
-            rt = len(evidence)
+            # if failure == "argmax":
+            # rt = np.argmax(np.abs(evidence))
+            # else:
+            rt = len(evidence) - 1
             decision = evidence[-1]
             if decision > 0:
                 response = True
