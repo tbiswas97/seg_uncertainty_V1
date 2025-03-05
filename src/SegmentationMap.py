@@ -1800,8 +1800,6 @@ class SegmentationMap:
         -----------
         automult : np.array
             The parameter used to compute the rt, must be an array
-        return_df : bool
-            if True, return in the form of a DataFrame
         return_responses : bool
             if True, return responses as well as reaction times
         use_pseudo_average : bool
