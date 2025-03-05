@@ -723,12 +723,25 @@ class SegmentationMap:
         # [[a, b] for a in pointwise_rts_a for b in pointwise_rts_b]
         # )
 
+        if out == "distances":
+            distances = np.asarray(
+                [
+                    tb.euclidean_distance(all_pairs[i, 0], all_pairs[i, 1])
+                    for i in range(len(all_pairs))
+                ]
+            )
+
+            return distances
+
         psames_t = np.asarray(
             [dynamics._get_psame_t(pair[0], pair[1], self) for pair in all_pairs]
         )
-        sfs_t = np.asarray(
-            [dynamics._get_seg_flag_t(pair[0], pair[1], self) for pair in all_pairs]
-        )
+        if out == "segflags":
+            sfs_t = np.asarray(
+                [dynamics._get_seg_flag_t(pair[0], pair[1], self) for pair in all_pairs]
+            )
+
+            return sfs_t
 
         logits = np.asarray(
             [
@@ -748,8 +761,7 @@ class SegmentationMap:
 
         if out == "logit_derivs":
             logit_derivs = [
-                np.abs(dynamics.sliding_window_deriv1(logit, 3))
-                for logit in self.logits
+                np.abs(dynamics.sliding_window_deriv1(logit, 3)) for logit in logits
             ]
             return logit_derivs
 
@@ -917,31 +929,6 @@ class SegmentationMap:
     # self.pseudologits = np.asarray(pseudologits)
 
     # return self.pseudologits
-    def _get_pseudo_ei_info(self):
-
-        if hasattr(self, "pseudocoords"):
-            self.pseudo_ei_logits = np.asarray(
-                [
-                    self._process_pseudocoords_ei(
-                        i,
-                        self.grids_idx[i],
-                        out="ei_logits",
-                    )
-                    for i in range(len(self.grids_idx))
-                ]
-            )
-
-            if hasattr(self, "wei_logits"):
-                self.pseudo_wei_logits = np.asarray(
-                    [
-                        self._process_pseudocoords_ei(
-                            i,
-                            self.grids_idx[i],
-                            out="wei_logits",
-                        )
-                        for i in range(len(self.grids_idx))
-                    ]
-                )
 
     def get_ei_info(self, pairs, noise=5, weighted=True):
         """
@@ -960,54 +947,50 @@ class SegmentationMap:
         """
         assert hasattr(self, "logits"), "Must run iterinfo before ei info"
 
-        num_samples = self.logits.shape[1]
+        num_samples = self.logits.shape[-1]
+        flat_logits = self.logits.reshape((-1, num_samples))
+        flat_sfs_t = self.sfs_t.reshape((-1, num_samples))
+
         if True:
-            pos_drift_rate = np.mean(self.logits[:, -1][self.sfs_t[:, -1]])
-            neg_drift_rate = np.mean(self.logits[:, -1][~self.sfs_t[:, -1]])
+            pos_drift_rate = np.mean(flat_logits[:, -1][flat_sfs_t[:, -1]])
+            neg_drift_rate = np.mean(flat_logits[:, -1][~flat_sfs_t[:, -1]])
             self.global_drift_rate = [pos_drift_rate, neg_drift_rate]
-            drift_rate_arr = np.zeros(self.logits[:, -1].shape)
-            drift_rate_arr[self.sfs_t[:, -1]] += pos_drift_rate
-            drift_rate_arr[~self.sfs_t[:, -1]] += neg_drift_rate
+            drift_rate_arr = np.zeros(flat_logits[:, -1].shape)
+            drift_rate_arr[flat_sfs_t[:, -1]] += pos_drift_rate
+            drift_rate_arr[~flat_sfs_t[:, -1]] += neg_drift_rate
 
             self.drift_rate_arr = drift_rate_arr
 
             self.ei_logits = np.asarray(
                 [
                     dynamics._get_ei_logits(
-                        coord[0],
-                        coord[1],
                         drift_rate=drift / num_samples,
                         sample_size=num_samples,
                         noise=noise,
                     )
-                    for coord, drift in zip(pairs, drift_rate_arr)
+                    for drift in drift_rate_arr
                 ]
-            )
+            ).reshape(self.logits.shape)
 
         if weighted:
-            drift_rate_arr = np.zeros(self.logits[:, -1].shape)
-            drift_rate_arr = self.logits[:, -1]
+            drift_rate_arr = np.zeros(flat_logits[:, -1].shape)
+            drift_rate_arr = flat_logits[:, -1]
             self.wei_logits = np.asarray(
                 [
                     dynamics._get_ei_logits(
-                        coord[0],
-                        coord[1],
                         drift_rate=drift / num_samples,
                         sample_size=num_samples,
                     )
-                    for coord, drift in zip(pairs, drift_rate_arr)
+                    for drift in drift_rate_arr
                 ]
-            )
-
-        if hasattr(self, "pseudocoords"):
-            self._get_pseudo_ei_info()
+            ).reshape(self.logits.shape)
 
         return None
 
     def _get_pseudo_iter_info(self, points, pairs, grid_idx, n_pseudocoords=10):
         """
 
-        Return per-iteration information for a random set of pseudo coordinates.
+        Expands per-pair information to include a random set of pseudo coordinates.
         Each set of pseudo-coordinates is randomly selected from around a coordinate in points.
         Pseudo-logits struct will have shape (n_pairs,n_pseudocoords,n_iter)
 
@@ -1025,7 +1008,36 @@ class SegmentationMap:
         if n_pseudocoords is not None:
             self._create_pseudocoords(points, sample_size=n_pseudocoords)
 
-            self.pseudo_logits = np.asarray(
+            expanded_distances = self.distances[..., np.newaxis]
+            pseudo_distances = np.asarray(
+                [
+                    self._process_pseudocoords(
+                        i,
+                        grid_idx[i],
+                        use_pointwise_rts=False,
+                        out="distances",
+                    )
+                    for i in range(len(grid_idx))
+                ]
+            )
+            self.distances = np.append(expanded_distances, pseudo_distances, axis=1)
+
+            expanded_seg_flags = np.expand_dims(self.sfs_t, 1)
+            pseudo_sfs_t = np.asarray(
+                [
+                    self._process_pseudocoords(
+                        i,
+                        grid_idx[i],
+                        use_pointwise_rts=False,
+                        out="segflags",
+                    )
+                    for i in range(len(grid_idx))
+                ]
+            )
+            self.sfs_t = np.append(expanded_seg_flags, pseudo_sfs_t, 1)
+
+            expanded_logits = np.expand_dims(self.logits, 1)
+            pseudo_logits = np.asarray(
                 [
                     self._process_pseudocoords(
                         i,
@@ -1036,8 +1048,10 @@ class SegmentationMap:
                     for i in range(len(grid_idx))
                 ]
             )
+            self.logits = np.append(expanded_logits, pseudo_logits, 1)
 
-            self.pseudo_logits_smooth = np.asarray(
+            expanded_logits = np.expand_dims(self.smooth_logits, 1)
+            pseudo_logits_smooth = np.asarray(
                 [
                     self._process_pseudocoords(
                         i,
@@ -1048,8 +1062,10 @@ class SegmentationMap:
                     for i in range(len(grid_idx))
                 ]
             )
+            self.smooth_logits = np.append(expanded_logits, pseudo_logits_smooth, 1)
 
-            self.pseudo_logits_deriv = np.asarray(
+            expanded_logits = np.expand_dims(self.logit_deriv, 1)
+            pseudo_logits_deriv = np.asarray(
                 [
                     self._process_pseudocoords(
                         i,
@@ -1060,6 +1076,7 @@ class SegmentationMap:
                     for i in range(len(grid_idx))
                 ]
             )
+            self.logit_deriv = np.append(expanded_logits, pseudo_logits_deriv)
 
         return None
 
@@ -1093,7 +1110,6 @@ class SegmentationMap:
             self.psames_t = np.asarray(
                 [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
             )
-
             self.sfs_t = np.asarray(
                 [dynamics._get_seg_flag_t(coord[0], coord[1], self) for coord in coords]
             )
