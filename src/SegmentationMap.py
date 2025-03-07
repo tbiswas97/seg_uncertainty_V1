@@ -156,6 +156,7 @@ class SegmentationMap:
             self.session_loaded = False
             self.primary_seg_map = None
             self.gts = None
+            self.rts = {}
         else:
             print("Invalid initiation")
 
@@ -760,9 +761,9 @@ class SegmentationMap:
             return smooth_logits
 
         if out == "logit_derivs":
-            logit_derivs = [
-                np.abs(dynamics.sliding_window_deriv1(logit, 3)) for logit in logits
-            ]
+            logit_derivs = np.asarray(
+                [np.abs(dynamics.sliding_window_deriv1(logit, 3)) for logit in logits]
+            )
             return logit_derivs
 
         if use_evidence_integration:
@@ -1050,34 +1051,6 @@ class SegmentationMap:
             )
             self.logits = np.append(expanded_logits, pseudo_logits, 1)
 
-            expanded_logits = np.expand_dims(self.smooth_logits, 1)
-            pseudo_logits_smooth = np.asarray(
-                [
-                    self._process_pseudocoords(
-                        i,
-                        grid_idx[i],
-                        use_pointwise_rts=False,
-                        out="smooth_logits",
-                    )
-                    for i in range(len(grid_idx))
-                ]
-            )
-            self.smooth_logits = np.append(expanded_logits, pseudo_logits_smooth, 1)
-
-            expanded_logits = np.expand_dims(self.logit_deriv, 1)
-            pseudo_logits_deriv = np.asarray(
-                [
-                    self._process_pseudocoords(
-                        i,
-                        grid_idx[i],
-                        use_pointwise_rts=False,
-                        out="logit_derivs",
-                    )
-                    for i in range(len(grid_idx))
-                ]
-            )
-            self.logit_deriv = np.append(expanded_logits, pseudo_logits_deriv)
-
         return None
 
     def get_iter_info(self, points, pairs, grid_idx, n_pseudocoords=10):
@@ -1110,6 +1083,9 @@ class SegmentationMap:
             self.psames_t = np.asarray(
                 [dynamics._get_psame_t(coord[0], coord[1], self) for coord in coords]
             )
+
+            self.n_iter = self.psames_t.shape[-1]
+
             self.sfs_t = np.asarray(
                 [dynamics._get_seg_flag_t(coord[0], coord[1], self) for coord in coords]
             )
@@ -1120,20 +1096,82 @@ class SegmentationMap:
                 ]
             )
 
-            self.smooth_logits = [
-                dynamics.sliding_window_mean(logit, 3) for logit in self.logits
-            ]
-
-            self.logit_deriv = [
-                np.abs(dynamics.sliding_window_deriv1(logit, 3))
-                for logit in self.logits
-            ]
-
-        # This block gets info for all coordinates that are pseudocoords
         if n_pseudocoords is not None:
             self._get_pseudo_iter_info(
                 points, pairs, grid_idx, n_pseudocoords=n_pseudocoords
             )
+
+        self.smooth_logits = sliding_window_view(self.logits, 3, axis=-1).mean(-1)
+
+        diff = lambda x: (x[-1] - x[0]) / len(x)
+
+        self.logit_deriv = np.apply_along_axis(
+            diff, -1, sliding_window_view(self.logits, 3, axis=-1)
+        )
+
+        # This block gets info for all coordinates that are pseudocoords
+
+    def _get_rt_from_boundary(
+        self, boundary, param="logits", output_flat=True, return_mean=True
+    ):
+        """
+        Calculates reaction times using a boundary on the array (vectorized)
+        """
+        assert hasattr(self, param)
+
+        logits = self.__dict__[param]
+        times = np.abs(logits) > boundary
+        times[:, :, -1] = True
+
+        rts = np.argmax(times, axis=-1)
+        if return_mean:
+            rts = rts.mean(axis=1)
+        if output_flat:
+            rts = np.ravel(rts)
+
+        self.rts[param] = rts
+        return rts
+
+    def _get_rt_from_deriv(
+        self, thresh, output_flat=True, return_mean=True, failure_mode="argmax"
+    ):
+        abs_evidence = np.abs(self.smooth_logits)
+        abs_deriv = np.abs(self.logit_deriv)
+
+        cond = abs_deriv < (thresh * abs_evidence)
+        failure_to_conv = np.nonzero((~cond).all(axis=-1))
+        conv_cond = sliding_window_view(cond, 3, axis=-1).all(axis=-1)
+
+        rt_arr = conv_cond.argmax(-1)
+        if failure_mode == "argmax":
+            rt_arr[failure_to_conv] = abs_evidence[failure_to_conv].argmax(-1)
+        else:
+            rt_arr[failure_to_conv] = conv_cond.shape[-1]
+
+        rts = rt_arr
+
+        if return_mean:
+            rts = rt_arr.mean(axis=1)
+
+        if output_flat:
+            rts = np.ravel(rts)
+
+        self.rts["auto"] = rts
+
+        return rts
+
+    def _get_errors_from_rt_arr(self, rt_arr, param="logits"):
+        logits = self.__dict__[param]
+        assert rt_arr.shape == logits.shape[:-1]
+
+        row_idxs, col_idxs = np.indices(rt_arr.shape)
+
+        responses = logits[row_idxs, col_idxs, rt_arr]
+        segflags = self.sfs_t[:, :, -1]
+
+        errors = np.logical_xor(responses, segflags)
+
+        return errors
 
     def get_decision_rts(
         self,
@@ -1547,17 +1585,9 @@ class SegmentationMap:
         self,
         boundary,
         col=None,
-        key=None,
-        return_df=False,
-        return_responses=False,
-        use_pseudo_average=True,
     ):
         # TODO: evidence integration does not work with collapsing bounds
 
-        if key is not None:
-            key = key
-        else:
-            boundary_key = list(boundary.keys())[0]
         if boundary is not None:
             assert type(boundary) == dict
             if list(boundary.keys())[0] == "const":
@@ -1806,9 +1836,7 @@ class SegmentationMap:
 
             return df_new_bounds
 
-    def reapply_automult(
-        self, automult, return_df=False, return_responses=False, use_pseudo_average=True
-    ):
+    def reapply_automult(self, automult):
         """
         Apply (or reapply) the convergence threshold
 
@@ -1824,85 +1852,25 @@ class SegmentationMap:
         """
         self.auto_mult = automult
 
-        if return_df:
-            df_new = self.dynamics_pairwise_df.copy()
+        n_iter_smooth = self.smooth_logits.shape[-1]
 
-        auto_rts = [
-            dynamics._get_decision_rt(
-                evidence,
-                deriv=d,
-                boundary="auto",
-                c=automult,
-                return_responses=return_responses,
-            )[0]
-            for evidence, d in zip(self.smooth_logits, self.logit_deriv)
-        ]
-        if return_responses:
-            auto_responses = [
+        flat_smooth_logits = self.smooth_logits.reshape((-1, n_iter_smooth))
+
+        flat_derivs = self.logit_deriv.reshape((-1, n_iter_smooth))
+
+        auto_rts = np.asarray(
+            [
                 dynamics._get_decision_rt(
-                    evidence, deriv=d, boundary="auto", c=automult
-                )[1]
-                for evidence, d in zip(self.smooth_logits, self.logit_deriv)
+                    evidence,
+                    deriv=d,
+                    boundary="auto",
+                    c=automult,
+                )[0]
+                for evidence, d in zip(flat_smooth_logits, flat_derivs)
             ]
+        ).reshape(self.smooth_logits.shape[:-1])
 
-        if hasattr(self, "pseudocoords") and hasattr(self, "pseudo_logits"):
-            if return_df:
-                auto_rts_pseudo = [
-                    dynamics._get_decision_rt(
-                        evidence, deriv=d, boundary="auto", c=automult
-                    )[0]
-                    for evidence, d in zip(
-                        self.pseudo_logits_smooth.reshape(
-                            (-1, self.pseudo_logits_smooth.shape[-1])
-                        ),
-                        self.pseudo_logits_deriv.reshape(
-                            (-1, self.pseudo_logits_deriv.shape[-1])
-                        ),
-                    )
-                ]
-            else:
-                auto_rts_pseudo = np.asarray(
-                    [
-                        dynamics._get_decision_rt(
-                            evidence, deriv=d, boundary="auto", c=automult
-                        )[0]
-                        for evidence, d in zip(
-                            self.pseudo_logits_smooth.reshape(
-                                (-1, self.pseudo_logits_smooth.shape[-1])
-                            ),
-                            self.pseudo_logits_deriv.reshape(
-                                (-1, self.pseudo_logits_deriv.shape[-1])
-                            ),
-                        )
-                    ]
-                ).reshape(self.pseudo_logits_smooth.shape[:-1])
-
-            if return_responses:
-                auto_responses_pseudo = [
-                    dynamics._get_decision_rt(
-                        evidence, deriv=d, boundary="auto", c=automult
-                    )[1]
-                    for evidence, d in zip(
-                        self.pseudo_logits_smooth.reshape(
-                            (-1, self.pseudo_logits_smooth.shape[-1])
-                        ),
-                        self.pseudo_logits_deriv.reshape(
-                            (-1, self.pseudo_logits_deriv.shape[-1])
-                        ),
-                    )
-                ]
-
-        if return_df:
-            df_new["auto_rt"] = auto_rts + auto_rts_pseudo
-            df_new["auto_response"] = auto_responses + auto_responses_pseudo
-
-            return df_new
-        else:
-            if use_pseudo_average:
-                auto_rts = self._avg_with_pseudo(auto_rts, auto_rts_pseudo)
-                return auto_rts
-            else:
-                return np.concatenate([auto_rts, np.ravel(auto_rts_pseudo)])
+        return auto_rts
 
     def _avg_with_pseudo(self, rts, rts_pseudo):
         """
