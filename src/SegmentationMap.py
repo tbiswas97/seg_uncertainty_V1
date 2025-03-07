@@ -479,31 +479,6 @@ class SegmentationMap:
         self.model_fitted = self.model_res["c"].squeeze()[2]
         self.active_layer = layer
 
-    def _get_collapsing_bounds(self, boundary):
-        """
-        Creates collapsing boundary function as a linear function of model
-        likelihood
-
-        Parameters:
-        ------------
-        boundary : array like
-            first element is boundary at t=0, last element is boundary at t=T
-
-        Returns:
-        ---------
-        bounds : list of arrays
-        """
-        shape = self.likelihoods.mean(axis=1)
-        shape = shape / shape.max()
-        multiplier = boundary[0] - boundary[1]
-
-        upper_bound = boundary[0] - (multiplier * shape)
-        lower_bound = -upper_bound
-
-        bounds = [upper_bound, lower_bound]
-
-        return bounds
-
     def _create_pseudocoords(self, coords, window=10, sample_size=10):
         """
         Creates a set of pseudocoords around specified coordinates
