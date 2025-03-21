@@ -1869,3 +1869,53 @@ def scale_im_up(im, new_size):
     im_small = _bin(im_big, binsize=(common_mult // new_size, common_mult // new_size))
 
     return im_small
+
+
+def emp_likelihood_function(observed_datapoint, model_data, eps=1e-4):
+    ecdf = lambda x: np.sum(model_data <= x) / len(model_data)
+    y1 = observed_datapoint
+    try:
+        y2 = np.sort(model_data[model_data < y1])[-2]
+        dy = y1 - y2
+    except:
+        return np.nan
+
+    cdfy1 = ecdf(y1)
+    cdfy2 = ecdf(y2)
+
+    L = ((cdfy1 - cdfy2) + eps) / dy
+
+    return L
+
+
+def emp_lkl_mkii(model_data, human_data, eps=1e-4):
+
+    ecdf = lambda x: np.sum(model_data <= x)
+
+    lkls = []
+
+    for obs in human_data:
+        y1 = ecdf(obs)
+        try:
+            y2 = ecdf(np.sort(human_data[human_data < obs])[-1])
+        except:
+            y2 = y1
+        eps = eps
+
+        lkls.append(-np.log((y1 - y2) + eps))
+
+    return np.sum(lkls)
+
+
+def gaussian_lkl(model_data, human_data):
+
+    gauss_mean = np.mean(model_data)
+    gauss_var = np.var(model_data)
+
+    f = lambda x: np.log(np.sqrt(gauss_var)) + ((x - gauss_mean) ** 2) / (2 * gauss_var)
+
+    f_ = np.vectorize(f)
+
+    lkls = f_(human_data)
+
+    return -1 * np.sum(lkls)
