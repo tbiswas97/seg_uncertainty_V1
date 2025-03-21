@@ -475,6 +475,90 @@ def _get_decision_rt(
             return rt, np.nan
 
 
+def _get_rt_from_boundary(
+    logits, boundary, output_flat=True, return_mean=True, mean_axis=(0, -1)
+):
+    """
+    Calculates reaction times using a boundary on the array (vectorized)
+    """
+    times = np.abs(logits) > boundary
+    times[..., -1] = True
+
+    rts = np.argmax(times, axis=-1)
+    if return_mean:
+        rts = rts.mean(axis=mean_axis)
+    if output_flat:
+        rts = np.ravel(rts)
+
+    return rts
+
+
+def _get_rt_from_deriv(
+    smooth_logits,
+    logit_deriv,
+    thresh,
+    output_flat=True,
+    return_mean=True,
+    failure_mode="argmax",
+    mean_axis=(0, -1),
+    use_boundary=None,
+):
+
+    abs_evidence = np.abs(smooth_logits)
+    abs_deriv = np.abs(logit_deriv)
+
+    if use_boundary is not None:
+        cond = np.logical_or(
+            abs_deriv < (thresh * abs_evidence), (abs_evidence > use_boundary)
+        )
+    else:
+        cond = abs_deriv < (thresh * abs_evidence)
+
+    failure_to_conv = np.nonzero((~cond).all(axis=-1))
+    conv_cond = sliding_window_view(cond, 3, axis=-1).all(axis=-1)
+
+    rt_arr = conv_cond.argmax(-1)
+    if failure_mode == "argmax":
+        rt_arr[failure_to_conv] = abs_evidence[failure_to_conv].argmax(-1)
+    else:
+        rt_arr[failure_to_conv] = conv_cond.shape[-1]
+
+    rts = rt_arr
+
+    if return_mean:
+        rts = rt_arr.mean(axis=mean_axis)
+
+    if output_flat:
+        rts = np.ravel(rts)
+
+    return rts
+
+
+def _get_responses_from_rt_arr(rt_arr, logits):
+
+    assert rt_arr.shape == logits.shape[:-1]
+
+    indxs = np.indices(rt_arr.shape)
+
+    responses = (logits[indxs[0], indxs[1], indxs[2], rt_arr]) > 0
+
+    return responses
+
+
+def _get_errors_from_rt_arr(rt_arr, logits, sfs_t):
+
+    assert rt_arr.shape == logits.shape[:-1]
+
+    indxs = np.indices(rt_arr.shape)
+
+    responses = (logits[indxs[0], indxs[1], indxs[2], rt_arr]) > 0
+    segflags = sfs_t[..., -1]
+
+    errors = np.logical_xor(responses, segflags)
+
+    return errors
+
+
 def df_to_rt_hist(df, rt_col="online_rt", groupby="seg_flag", nbins=20):
     all_yes = df.loc[(df[groupby] == 1), [rt_col]]
     all_no = df.loc[(df[groupby] == 0), [rt_col]]
@@ -518,8 +602,8 @@ def df_to_rt_vs_distance(
     d["plot_no"] = (dist_smooth_n, rt_smooth_n)
 
     if ax is not None:
-        ax.plot(d["plot_yes"][0], d["plot_yes"][1], c="green")
-        ax.plot(d["plot_no"][0], d["plot_no"][1], c="orange")
+        ax.plot(d["plot_yes"][0], d["plot_yes"][1], c="green", label="yes")
+        ax.plot(d["plot_no"][0], d["plot_no"][1], c="orange", label="no")
     else:
         plt.plot(d["plot_yes"][0], d["plot_yes"][1], c="green")
         plt.plot(d["plot_no"][0], d["plot_no"][1], c="orange")
