@@ -873,7 +873,7 @@ class SegmentationMap:
 
         logits = self.__dict__[param]
         times = np.abs(logits) > boundary
-        times[:, :, -1] = True
+        times[..., -1] = True
 
         rts = np.argmax(times, axis=-1)
         if return_mean:
@@ -885,12 +885,23 @@ class SegmentationMap:
         return rts
 
     def _get_rt_from_deriv(
-        self, thresh, output_flat=True, return_mean=True, failure_mode="argmax"
+        self,
+        thresh,
+        output_flat=True,
+        return_mean=True,
+        failure_mode="argmax",
+        use_boundary=None,
     ):
         abs_evidence = np.abs(self.smooth_logits)
         abs_deriv = np.abs(self.logit_deriv)
 
-        cond = abs_deriv < (thresh * abs_evidence)
+        if use_boundary is not None:
+            cond = np.logical_or(
+                abs_deriv < (thresh * abs_evidence), (abs_evidence > use_boundary)
+            )
+        else:
+            cond = abs_deriv < (thresh * abs_evidence)
+
         failure_to_conv = np.nonzero((~cond).all(axis=-1))
         conv_cond = sliding_window_view(cond, 3, axis=-1).all(axis=-1)
 
