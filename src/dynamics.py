@@ -334,6 +334,8 @@ def _get_logit(coord1, coord2, psame_t, evidence_type="logit"):
     if evidence_type == "logit":
         get_logit = lambda x: np.log(x) - np.log(1 - x)
 
+        psame_t[psame_t > 1] = 1
+
         logit = get_logit(psame_t)
 
         return logit
@@ -476,7 +478,12 @@ def _get_decision_rt(
 
 
 def _get_rt_from_boundary(
-    logits, boundary, output_flat=True, return_mean=True, mean_axis=(0, -1)
+    logits,
+    boundary,
+    output_flat=True,
+    return_mean=True,
+    mean_axis=(0, -1),
+    add_one=False,
 ):
     """
     Calculates reaction times using a boundary on the array (vectorized)
@@ -485,6 +492,8 @@ def _get_rt_from_boundary(
     times[..., -1] = True
 
     rts = np.argmax(times, axis=-1)
+    if add_one:
+        rts += 1
     if return_mean:
         rts = rts.mean(axis=mean_axis)
     if output_flat:
@@ -502,6 +511,7 @@ def _get_rt_from_deriv(
     failure_mode="argmax",
     mean_axis=(0, -1),
     use_boundary=None,
+    add_one=False,
 ):
 
     abs_evidence = np.abs(smooth_logits)
@@ -524,6 +534,9 @@ def _get_rt_from_deriv(
         rt_arr[failure_to_conv] = conv_cond.shape[-1]
 
     rts = rt_arr
+
+    if add_one:
+        rts += 1
 
     if return_mean:
         rts = rt_arr.mean(axis=mean_axis)
