@@ -85,6 +85,8 @@ def _fit_model(
     init=None,
     init_eps=None,
     spatial_smoothing=True,
+    n_pca=0.95,
+    neigh_size_list=None,
     layer_normalization=True,
     reshape_deep_layers=True,
     deepnet="vgg19",
@@ -178,13 +180,15 @@ def _fit_model(
         d = d_list[0]
 
     # NOTE:neighborhood size used for spatial smoothing
-    neigh_size_list = 1.0 * np.array(
-        [17, 17, 13, 13, 9, 9, 9, 9, 3, 3, 3, 3, 3, 3, 3, 3]
-    )
+    if neigh_size_list is not None:
+        neigh_size_list = neigh_size_list
+    else:
+        neigh_size_list = 1.0 * np.array(
+            [17, 17, 13, 13, 9, 9, 9, 9, 3, 3, 3, 3, 3, 3, 3, 3]
+        )
     # FIXME: for ppca = True, model b and c don't work
     ppca = False
     light = True
-    n_pca = 10
 
     # models are defined in models_deep_seg.py
     # FIXME: ref model output is not the correct size?
