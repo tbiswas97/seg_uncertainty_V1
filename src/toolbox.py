@@ -1,4 +1,4 @@
-""" 
+"""
 Toolbox for image processing
 
 License CC BY-NC-SA 4.0 : https://creativecommons.org/licenses/by-nc-sa/4.0/
@@ -1919,3 +1919,12 @@ def gaussian_lkl(model_data, human_data):
     lkls = f_(human_data)
 
     return -1 * np.sum(lkls)
+
+
+def clip_inf_array(array):
+    top_clip = np.nanmax(array[array != np.inf])
+    bot_clip = np.nanmin(array[array != -np.inf])
+
+    out = np.clip(array, a_min=bot_clip, a_max=top_clip)
+
+    return out
