@@ -1,4 +1,4 @@
-""" Multilayer segmentation with mixture models
+"""Multilayer segmentation with mixture models
 
 License GNU GPLv3 : https://www.gnu.org/licenses/gpl-3.0.en.html
 May 2019, Jonathan Vacher (jonathanvacher.github.io)
@@ -6,7 +6,7 @@ May 2019, Jonathan Vacher (jonathanvacher.github.io)
 Helper: get deep features
 Model ref: indeprendent layers / no smoothing
 Model a: independent layers
-Model b: single prior probability map 
+Model b: single prior probability map
 Model c: smoothed prior probability maps
 """
 
@@ -630,7 +630,7 @@ def model_c(
     n_iter=50,
     params="q",
     ppca=False,
-    n_pca=12,
+    n_pca=0.95,
     gmm=False,
     light=True,
     verbose=True,
@@ -680,7 +680,7 @@ def model_c(
             prior_init = True
 
         # initialize PCA Object from sklearn
-        res[l, 0, 0, 0] = PCA(n_components=0.95)
+        res[l, 0, 0, 0] = PCA(n_components=n_pca)
         # set embedding dimension of features
         d = d_list[l]
         # set im size dimenstion of features
