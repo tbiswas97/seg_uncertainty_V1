@@ -5,15 +5,15 @@ This class has reused code and comments from sklearn.mixture.gmm.
 
 This class implements the following paper:
 =================================================
- 
-'Robust mixture modelling using the t distribution', D. Peel and G. J. 
+
+'Robust mixture modelling using the t distribution', D. Peel and G. J.
 McLachlan.
 Published at: Statistics and Computing (2000) 10, 339-348.
- 
+
 Jonathan Vacher (jonathan.vacher@einstein.yu.edu)
 March 2019.
 
-Modified and augmented from original code by 
+Modified and augmented from original code by
 Luis Carlos Garcia-Peraza Herrera (luis.herrera.14@ucl.ac.uk).
 24 Nov 2015.
 """
@@ -144,7 +144,7 @@ class SMM(sklearn.base.BaseEstimator):
         params="wqmcd",
         init_params="wqmcd",
         ppca=False,
-        n_pca=10,
+        n_pca=0.95,
     ):
 
         # Store the parameters as class attributes
