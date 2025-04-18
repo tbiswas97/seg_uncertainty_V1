@@ -581,8 +581,17 @@ def df_to_rt_hist(df, rt_col="online_rt", groupby="seg_flag", nbins=20):
 
 
 def df_to_rt_vs_distance(
-    df, rt_col="online_rt", kernel_size=10, groupby="seg_flag", _sample=None, ax=None
+    df,
+    rt_col="online_rt",
+    kernel_size=10,
+    groupby="seg_flag",
+    _sample=None,
+    ax=None,
+    colors=["#40539F", "#db3b31"],
 ):
+
+    sem = lambda x: np.std(x) / (np.sqrt(len(x)))
+
     df = df.loc[:, ["image_distance", rt_col, groupby]]
 
     if _sample is not None:
@@ -609,16 +618,43 @@ def df_to_rt_vs_distance(
     dist_smooth_n = [np.mean(_bin) for _bin in sliding_window_view(dist_n, kernel_size)]
     rt_smooth_n = [np.mean(_bin) for _bin in sliding_window_view(rt_n, kernel_size)]
 
+    dist_smooth_y_err = [sem(_bin) for _bin in sliding_window_view(dist_y, kernel_size)]
+    rt_smooth_y_err = [sem(_bin) for _bin in sliding_window_view(rt_y, kernel_size)]
+
+    dist_smooth_n_err = [sem(_bin) for _bin in sliding_window_view(dist_n, kernel_size)]
+    rt_smooth_n_err = [sem(_bin) for _bin in sliding_window_view(rt_n, kernel_size)]
+
     d = {}
 
     d["plot_yes"] = (dist_smooth_y, rt_smooth_y)
     d["plot_no"] = (dist_smooth_n, rt_smooth_n)
 
+    d["plot_yes_err"] = (dist_smooth_y_err, rt_smooth_y_err)
+    d["plot_no_err"] = (dist_smooth_n_err, rt_smooth_n_err)
+
     if ax is not None:
-        ax.plot(d["plot_yes"][0], d["plot_yes"][1], c="green", label="yes")
-        ax.plot(d["plot_no"][0], d["plot_no"][1], c="orange", label="no")
+        ax.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0], label="yes")
+
+        ax.errorbar(
+            x=d["plot_yes"][0],
+            xerr=d["plot_yes_err"][0],
+            y=d["plot_yes"][1],
+            yerr=d["plot_yes_err"][1],
+            c=colors[0],
+        )
+
+        ax.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1], label="no")
+
+        ax.errorbar(
+            x=d["plot_no"][0],
+            xerr=d["plot_no_err"][0],
+            y=d["plot_no"][1],
+            yerr=d["plot_no_err"][1],
+            c=colors[1],
+        )
+
     else:
-        plt.plot(d["plot_yes"][0], d["plot_yes"][1], c="green")
-        plt.plot(d["plot_no"][0], d["plot_no"][1], c="orange")
+        plt.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0])
+        plt.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1])
 
     return d
