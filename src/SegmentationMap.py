@@ -157,6 +157,9 @@ class SegmentationMap:
             self.primary_seg_map = None
             self.gts = None
             self.rts = {}
+            self.neigh_size_list = 1.0 * np.array(
+                [17, 17, 13, 13, 9, 9, 9, 9, 3, 3, 3, 3, 3, 3, 3, 3]
+            )
         else:
             print("Invalid initiation")
 
@@ -205,6 +208,7 @@ class SegmentationMap:
         layer_normalization=True,
         reshape_deep_layers=True,
         deepnet="vgg19",
+        n_pca=0.95,
     ):
         """
         Runs perceptual segmentation model on self.im
@@ -341,6 +345,8 @@ class SegmentationMap:
                     init=init,
                     init_eps=init_eps,
                     spatial_smoothing=spatial_smoothing,
+                    neigh_size_list=self.neigh_size_list,
+                    n_pca=n_pca,
                     deepnet=deepnet,
                     layer_normalization=layer_normalization,
                     reshape_deep_layers=reshape_deep_layers,
@@ -399,6 +405,7 @@ class SegmentationMap:
         else:
             # non-keep option only saves the last EM iteration
             # run model 'a'
+            self.model_res = {}
             if "a" in model:
                 self.model_res["a"] = seg._fit_model(
                     model_im,
@@ -683,7 +690,7 @@ class SegmentationMap:
         if out == "logits":
             return logits
 
-    def get_ei_info(self, pairs, noise=5, weighted=True):
+    def get_ei_info(self, pairs, noise=5, weighted=True, weighted_noise=10):
         """
         Return per-iteration evidence integration information
 
@@ -725,6 +732,8 @@ class SegmentationMap:
                 ]
             ).reshape(self.logits.shape)
 
+            self.ei_logits = tb.clip_inf_array(self.ei_logits)
+
         if weighted:
             drift_rate_arr = np.zeros(flat_logits[:, -1].shape)
             drift_rate_arr = flat_logits[:, -1]
@@ -733,10 +742,13 @@ class SegmentationMap:
                     dynamics._get_ei_logits(
                         drift_rate=drift / num_samples,
                         sample_size=num_samples,
+                        noise=weighted_noise,
                     )
                     for drift in drift_rate_arr
                 ]
             ).reshape(self.logits.shape)
+
+            self.wei_logits = tb.clip_inf_array(self.wei_logits)
 
         return None
 
@@ -801,6 +813,7 @@ class SegmentationMap:
                     for i in range(len(grid_idx))
                 ]
             )
+            pseudo_logits = tb.clip_inf_array(pseudo_logits)
             self.logits = np.append(expanded_logits, pseudo_logits, 1)
 
         return None
@@ -847,6 +860,8 @@ class SegmentationMap:
                     for coord, psame_t in zip(coords, self.psames_t)
                 ]
             )
+
+            self.logits = tb.clip_inf_array(self.logits)
 
         if n_pseudocoords is not None:
             self._get_pseudo_iter_info(
