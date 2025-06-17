@@ -582,7 +582,7 @@ def df_to_rt_hist(df, rt_col="online_rt", groupby="seg_flag", nbins=20):
 
 def df_to_rt_vs_distance(
     df,
-    rt_col="online_rt",
+    rt_col="model_rt",
     kernel_size=10,
     groupby="seg_flag",
     _sample=None,
