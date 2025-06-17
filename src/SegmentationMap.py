@@ -690,7 +690,9 @@ class SegmentationMap:
         if out == "logits":
             return logits
 
-    def get_ei_info(self, pairs, noise=5, weighted=True, weighted_noise=10):
+    def get_ei_info(
+        self, pairs, noise=5, weighted=True, offset=False, weighted_noise=10
+    ):
         """
         Return per-iteration evidence integration information
 
@@ -717,38 +719,50 @@ class SegmentationMap:
             self.global_drift_rate = [pos_drift_rate, neg_drift_rate]
             drift_rate_arr = np.zeros(flat_logits[:, -1].shape)
             drift_rate_arr[flat_sfs_t[:, -1]] += pos_drift_rate
-            drift_rate_arr[~flat_sfs_t[:, -1]] += neg_drift_rate
+            drift_rate_arr[~flat_sfs_t[:, -1]] -= neg_drift_rate
 
-            self.drift_rate_arr = drift_rate_arr
+            canvas = np.zeros(flat_logits.shape)
 
-            self.ei_logits = np.asarray(
-                [
-                    dynamics._get_ei_logits(
-                        drift_rate=drift / num_samples,
-                        sample_size=num_samples,
-                        noise=noise,
-                    )
-                    for drift in drift_rate_arr
-                ]
-            ).reshape(self.logits.shape)
+            self.noise_arr = noise * np.random.normal(0, 1, size=flat_logits.shape)
 
-            self.ei_logits = tb.clip_inf_array(self.ei_logits)
+            self.drift_rate_arr = (drift_rate_arr[:, np.newaxis]) / num_samples
 
-        if weighted:
-            drift_rate_arr = np.zeros(flat_logits[:, -1].shape)
-            drift_rate_arr = flat_logits[:, -1]
-            self.wei_logits = np.asarray(
-                [
-                    dynamics._get_ei_logits(
-                        drift_rate=drift / num_samples,
-                        sample_size=num_samples,
-                        noise=weighted_noise,
-                    )
-                    for drift in drift_rate_arr
-                ]
-            ).reshape(self.logits.shape)
+            temp = self.drift_rate_arr + self.noise_arr
 
-            self.wei_logits = tb.clip_inf_array(self.wei_logits)
+            temp = np.cumsum(temp, axis=1)
+
+            canvas[1:, :] = temp[:-1, :]
+
+            ## self.ei_logits = canvas.reshape(self.logits.shape)
+
+            ## self.ei_logits = np.asarray(
+            ## [
+            ## dynamics._get_ei_logits(
+            ## drift_rate=drift / num_samples,
+            ## sample_size=num_samples,
+            ## noise=noise,
+            ## )
+            ## for drift in drift_rate_arr
+            ## ]
+            ## ).reshape(self.logits.shape)
+
+            ## self.ei_logits = tb.clip_inf_array(self.ei_logits)
+
+        # if weighted:
+        # drift_rate_arr = np.zeros(flat_logits[:, -1].shape)
+        # drift_rate_arr = flat_logits[:, -1]
+        # self.wei_logits = np.asarray(
+        # [
+        # dynamics._get_ei_logits(
+        # drift_rate=drift / num_samples,
+        # sample_size=num_samples,
+        # noise=weighted_noise,
+        # )
+        # for drift in drift_rate_arr
+        # ]
+        # ).reshape(self.logits.shape)
+
+        # self.wei_logits = tb.clip_inf_array(self.wei_logits)
 
         return None
 
