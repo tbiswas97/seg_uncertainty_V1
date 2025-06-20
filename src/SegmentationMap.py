@@ -12,9 +12,9 @@ from numpy.random import default_rng
 
 # import analysis.dynamics as dynamics
 from itertools import combinations
-from Session import Session as Sess
-from Session import DEFAULT_PROBES
 import torchvision.models as models
+
+DEFAULT_PROBES = None
 
 
 class SegmentationMap:
@@ -882,13 +882,13 @@ class SegmentationMap:
                 points, pairs, grid_idx, n_pseudocoords=n_pseudocoords
             )
 
-        self.smooth_logits = sliding_window_view(self.logits, 3, axis=-1).mean(-1)
+        # self.smooth_logits = sliding_window_view(self.logits, 3, axis=-1).mean(-1)
 
-        diff = lambda x: (x[-1] - x[0]) / len(x)
+        # diff = lambda x: (x[-1] - x[0]) / len(x)
 
-        self.logit_deriv = np.apply_along_axis(
-            diff, -1, sliding_window_view(self.logits, 3, axis=-1)
-        )
+        # self.logit_deriv = np.apply_along_axis(
+        # diff, -1, sliding_window_view(self.logits, 3, axis=-1)
+        # )
 
         # This block gets info for all coordinates that are pseudocoords
 
