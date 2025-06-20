@@ -1,4 +1,5 @@
 .DS*
+src/Session.py
 data
 .vscode
 *.txt
