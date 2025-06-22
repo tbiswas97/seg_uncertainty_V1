@@ -30,8 +30,6 @@ from sklearn.feature_extraction.image import extract_patches_2d
 from sklearn.metrics.cluster import contingency_matrix
 from sklearn.model_selection import LeaveOneOut
 
-import dirichlet
-
 # pixel per centimeter
 ppcm = 65
 
@@ -1662,47 +1660,6 @@ def df_regress(
     }
 
     return pd.DataFrame.from_dict(d)
-
-
-def fit_dirichlet(df, n_components=4, norm_with=None):
-    start_idx = list(df.columns).index("neuron_p0")
-    p = df.iloc[:, start_idx : start_idx + n_components].values
-
-    if norm_with is not None:
-
-        def feature_scale(df, x):
-            out = (((df[x] - df[x].min()) / (df[x].max() - df[x].min())) * 100).round()
-
-            return out.values.reshape(-1, 1)
-
-        pz = np.concatenate((p, feature_scale(df, norm_with)), axis=1)
-
-        obs = []
-
-        for i, row in enumerate(p):
-            obs.append(row.reshape(1, -1))  # .repeat(pz[:,-1][i],0))
-
-        obs = np.concatenate(obs, axis=0)
-    else:
-        obs = p
-
-    a = dirichlet.mle(obs)
-
-    ll = dirichlet.loglikelihood(obs, a)
-
-    new_cols = {"dirichlet_params": [a] * len(df), "log_likelihood": [ll] * len(df)}
-
-    new_cols = pd.DataFrame.from_dict(new_cols)
-    # print(new_cols)
-
-    return pd.concat(
-        [
-            df.reset_index().drop("index", axis=1),
-            new_cols.reset_index().drop("index", axis=1),
-        ],
-        axis=1,
-        ignore_index=False,
-    )
 
 
 def generate_poisson_mixture(lambdas, weights, size=100):
