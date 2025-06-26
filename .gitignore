@@ -29,4 +29,5 @@ __pycache__/*
 *.jpg
 *.pdf
 *debug*
+reaction_time_model
 
