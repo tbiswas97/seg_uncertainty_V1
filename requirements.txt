@@ -14,7 +14,6 @@ Cython==3.0.11
 debugpy==1.6.0
 decorator==5.1.1
 defusedxml==0.7.1
-dirichlet @ git+https://github.com/ericsuh/dirichlet.git@8e832cc55ced9150e30ea3a7402f594896c5a527
 distlib==0.3.8
 entrypoints==0.4
 executing==0.8.3
@@ -45,7 +44,7 @@ nbclient==0.6.4
 nbconvert==6.5.0
 nbformat==5.4.0
 nest-asyncio==1.5.5
-numpy==1.24.4
+numpy==1.22.4
 packaging==21.3
 pandas==1.4.2
 pandocfilters==1.5.0
@@ -53,6 +52,7 @@ parso==0.8.3
 pexpect==4.8.0
 pickleshare==0.7.5
 Pillow==9.1.1
+pip==24.2
 platformdirs==4.2.2
 prometheus-client==0.14.1
 prompt-toolkit==3.0.29
@@ -71,6 +71,7 @@ scikit-learn==1.1.1
 scipy==1.8.1
 seaborn==0.11.2
 Send2Trash==1.8.0
+setuptools==65.5.0
 six==1.16.0
 soupsieve==2.3.2.post1
 stack-data==0.2.0
