@@ -1170,7 +1170,8 @@ class Session:
         else:
             coords = ndf.loc[:, [xy_strs[0], xy_strs[1]]].to_numpy()
 
-        tree = KDTree(coords)
+
+        tree - KDTree(coords)
 
         self.KDTree = tree
 
