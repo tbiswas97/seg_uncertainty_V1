@@ -588,6 +588,7 @@ def df_to_rt_vs_distance(
     _sample=None,
     ax=None,
     colors=["#40539F", "#db3b31"],
+    plot_args = None
 ):
 
     sem = lambda x: np.std(x) / (np.sqrt(len(x)))
@@ -633,7 +634,7 @@ def df_to_rt_vs_distance(
     d["plot_no_err"] = (dist_smooth_n_err, rt_smooth_n_err)
 
     if ax is not None:
-        ax.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0], label="yes")
+        ax.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0], label="yes",**plot_args)
 
         ax.errorbar(
             x=d["plot_yes"][0],
@@ -641,9 +642,10 @@ def df_to_rt_vs_distance(
             y=d["plot_yes"][1],
             yerr=d["plot_yes_err"][1],
             c=colors[0],
+            **plot_args
         )
 
-        ax.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1], label="no")
+        ax.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1], label="no",**plot_args)
 
         ax.errorbar(
             x=d["plot_no"][0],
@@ -651,6 +653,7 @@ def df_to_rt_vs_distance(
             y=d["plot_no"][1],
             yerr=d["plot_no_err"][1],
             c=colors[1],
+            **plot_args
         )
 
     else:
