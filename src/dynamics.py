@@ -634,27 +634,48 @@ def df_to_rt_vs_distance(
     d["plot_no_err"] = (dist_smooth_n_err, rt_smooth_n_err)
 
     if ax is not None:
-        ax.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0], label="yes",**plot_args)
+        if plot_args is not None:
+            ax.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0], label="yes",**plot_args)
 
-        ax.errorbar(
-            x=d["plot_yes"][0],
-            xerr=d["plot_yes_err"][0],
-            y=d["plot_yes"][1],
-            yerr=d["plot_yes_err"][1],
-            c=colors[0],
-            **plot_args
-        )
+            ax.errorbar(
+                x=d["plot_yes"][0],
+                xerr=d["plot_yes_err"][0],
+                y=d["plot_yes"][1],
+                yerr=d["plot_yes_err"][1],
+                c=colors[0],
+                **plot_args
+            )
 
-        ax.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1], label="no",**plot_args)
+            ax.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1], label="no",**plot_args)
 
-        ax.errorbar(
-            x=d["plot_no"][0],
-            xerr=d["plot_no_err"][0],
-            y=d["plot_no"][1],
-            yerr=d["plot_no_err"][1],
-            c=colors[1],
-            **plot_args
-        )
+            ax.errorbar(
+                x=d["plot_no"][0],
+                xerr=d["plot_no_err"][0],
+                y=d["plot_no"][1],
+                yerr=d["plot_no_err"][1],
+                c=colors[1],
+                **plot_args
+            )
+        else:
+            ax.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0], label="yes")
+
+            ax.errorbar(
+                x=d["plot_yes"][0],
+                xerr=d["plot_yes_err"][0],
+                y=d["plot_yes"][1],
+                yerr=d["plot_yes_err"][1],
+                c=colors[0]
+            )
+
+            ax.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1], label="no")
+
+            ax.errorbar(
+                x=d["plot_no"][0],
+                xerr=d["plot_no_err"][0],
+                y=d["plot_no"][1],
+                yerr=d["plot_no_err"][1],
+                c=colors[1]
+            )
 
     else:
         plt.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0])
