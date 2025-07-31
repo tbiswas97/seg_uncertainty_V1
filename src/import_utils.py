@@ -71,6 +71,13 @@ def get_exp_info(EXP_NAME, index=None):
             )
         )
         d = {"SESSION_MAT_PATH": SESSION_MAT_PATH, "SESSION_IMS": SESSION_IMS}
+    elif EXP_NAME == "Oberon":
+        SESSION_MAT_PATH = os.path.abspath(
+            os.path.join(
+                os.path.dirname(SESSION_PATH), EXP_NAME, "I01l130034out.mat"
+            )
+        )
+        d = {"SESSION_MAT_PATH": SESSION_MAT_PATH}
     else:
         print("INVALID NAME")
     return d
