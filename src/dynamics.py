@@ -585,6 +585,7 @@ def df_to_rt_vs_distance(
     rt_col="model_rt",
     kernel_size=10,
     groupby="seg_flag",
+    error_mode="fuzzy",
     _sample=None,
     ax=None,
     colors=["#40539F", "#db3b31"],
@@ -635,47 +636,73 @@ def df_to_rt_vs_distance(
 
     if ax is not None:
         if plot_args is not None:
-            ax.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0], label="yes",**plot_args)
+            if error_mode == "fuzzy":
+                #ax.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0], label="yes",**plot_args)
 
-            ax.errorbar(
-                x=d["plot_yes"][0],
-                xerr=d["plot_yes_err"][0],
-                y=d["plot_yes"][1],
-                yerr=d["plot_yes_err"][1],
-                c=colors[0],
-                **plot_args
-            )
+                ax.errorbar(
+                    x=d["plot_yes"][0],
+                    y=d["plot_yes"][1],
+                    xerr=d["plot_yes_err"][0],
+                    yerr=d["plot_yes_err"][1],
+                    c=colors[0],
+                    **plot_args
+                )
 
-            ax.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1], label="no",**plot_args)
+                #ax.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1], label="no",**plot_args)
 
-            ax.errorbar(
-                x=d["plot_no"][0],
-                xerr=d["plot_no_err"][0],
-                y=d["plot_no"][1],
-                yerr=d["plot_no_err"][1],
-                c=colors[1],
-                **plot_args
-            )
+                ax.errorbar(
+                    x=d["plot_no"][0],
+                    y=d["plot_no"][1],
+                    xerr=d["plot_no_err"][0],
+                    yerr=d["plot_no_err"][1],
+                    c=colors[1],
+                    **plot_args
+                )
+            elif error_mode=="shaded":
+                y_dist = np.asarray(d["plot_yes"][0])
+                y_rt = np.asarray(d["plot_yes"][1])
+                n_dist = np.asarray(d["plot_no"][0])
+                n_rt = np.asarray(d["plot_no"][1])
+                y_err = np.asarray(d["plot_yes_err"][1])
+                n_err = np.asarray(d["plot_no_err"][1])
+
+                #ax.plot(y_dist, y_rt, c=colors[0], label="yes",**plot_args)
+                #ax.plot(n_dist, n_rt, c=colors[1], label="no",**plot_args)
+                ax.fill_between(y_dist, y1=y_rt+y_err, y2=y_rt-y_err,facecolor="none",color=colors[0],lw=0,**plot_args)
+                ax.fill_between(n_dist, y1=n_rt+n_err, y2=n_rt-n_err,facecolor="none",color=colors[1],lw=0,**plot_args)
         else:
-            ax.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0], label="yes")
+            if error_mode == "fuzzy":
+                #ax.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0], label="yes",**plot_args)
 
-            ax.errorbar(
-                x=d["plot_yes"][0],
-                xerr=d["plot_yes_err"][0],
-                y=d["plot_yes"][1],
-                yerr=d["plot_yes_err"][1],
-                c=colors[0]
-            )
+                ax.errorbar(
+                    x=d["plot_yes"][0],
+                    y=d["plot_yes"][1],
+                    xerr=d["plot_yes_err"][0],
+                    yerr=d["plot_yes_err"][1],
+                    c=colors[0],
+                )
 
-            ax.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1], label="no")
+                #ax.plot(d["plot_no"][0], d["plot_no"][1], c=colors[1], label="no",**plot_args)
 
-            ax.errorbar(
-                x=d["plot_no"][0],
-                xerr=d["plot_no_err"][0],
-                y=d["plot_no"][1],
-                yerr=d["plot_no_err"][1],
-                c=colors[1]
-            )
+                ax.errorbar(
+                    x=d["plot_no"][0],
+                    y=d["plot_no"][1],
+                    xerr=d["plot_no_err"][0],
+                    yerr=d["plot_no_err"][1],
+                    c=colors[1],
+                )
+            elif error_mode=="shaded":
+                y_dist = np.asarray(d["plot_yes"][0])
+                y_rt = np.asarray(d["plot_yes"][1])
+                n_dist = np.asarray(d["plot_no"][0])
+                n_rt = np.asarray(d["plot_no"][1])
+                y_err = np.asarray(d["plot_yes_err"][1])
+                n_err = np.asarray(d["plot_no_err"][1])
+
+                #ax.plot(y_dist, y_rt, c=colors[0], label="yes")
+                #ax.plot(n_dist, n_rt, c=colors[0], label="no")
+                ax.fill_between(y_dist, y1=y_rt+y_err, y2=y_rt-y_err,alpha=0.4,facecolor="none",color=colors[0],lw=0)
+                ax.fill_between(n_dist, y1=n_rt+n_err, y2=n_rt-n_err,alpha=0.4,facecolor="none",color=colors[1],lw=0)
 
     else:
         plt.plot(d["plot_yes"][0], d["plot_yes"][1], c=colors[0])
