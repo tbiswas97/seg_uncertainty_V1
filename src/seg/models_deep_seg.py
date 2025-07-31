@@ -1004,9 +1004,6 @@ def model_c(
                 else:  # use the posterior probaiblities for the spatial_smoothing==0 case because
                     # prior probabilty is scalar
                     regular_mixture_prior = res[l, k, 2, 0].weights_
-                    if l > 1 and reshape_deep_layers:
-                        reshaped_weights = rdl(res[l, k, 2, 0].weights_)
-                        proba_maps[i, l, k, 0] = reshaped_weights
                     _regular_mixture_posterior = res[l, k, 2, 0]._posterior_proba(
                         Xpca[l]
                     )
@@ -1014,6 +1011,9 @@ def model_c(
                         regular_mixture_prior.shape == _regular_mixture_posterior.shape
                     )
                     proba_maps[i, l, k, 0] = _regular_mixture_posterior
+                    if l > 1 and reshape_deep_layers:
+                        reshaped_weights = rdl(_regular_mixture_posterior)
+                        proba_maps[i, l, k, 0] = reshaped_weights
                 proba_maps[i, l, k, 1] = res[l, k, 2, 0].means_
                 proba_maps[i, l, k, 2] = res[l, k, 2, 0].covars_
                 proba_maps[i, l, k, 3] = res[l, k, 2, 0].degrees_
