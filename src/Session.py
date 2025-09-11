@@ -55,9 +55,10 @@ class Session:
             except:
                 temp = import_utils.loadmat(mat)
 
-        # user defined attributes should go below line 46
+        #load from MATLAB
         if type(temp) == dict:
             if "Session" in temp.keys():
+                #all attributes automatically loaded here
                 self.__dict__ = temp["Session"]
                 self.d = temp["Session"]
             else:
@@ -134,6 +135,7 @@ class Session:
                 self.n_neurons = len(self.xy_coords)
                 self.np_coords = self._get_neuron_np_coords()
             except:
+                #specific case for NN2015 data
                 if not hasattr(self, "XYch"):
                     self.XYch = self.RF_SPATIAL[:, :2]
                     self.xy_coords = [coord for coord in self.XYch]
